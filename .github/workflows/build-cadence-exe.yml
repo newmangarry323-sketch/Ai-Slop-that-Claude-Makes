@@ -49,6 +49,26 @@ jobs:
           "tag=$tag"   | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "Cadence reports version $v -> release tag $tag"
 
+      - name: Clear a stale release for this tag
+        if: contains(github.event.head_commit.message, '[release]')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ steps.meta.outputs.tag }}'
+          # A marker-driven release re-points the tag at the commit being built.
+          # If a release already carries this tag it may sit on another commit,
+          # and an existing tag cannot be moved by the releases API, so drop it.
+          gh release view $tag --json tagName *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "removing existing release and tag $tag"
+            gh release delete $tag --yes --cleanup-tag
+          } else {
+            Write-Host "no existing release for $tag"
+          }
+          $global:LASTEXITCODE = 0
+          exit 0
+
       - name: Build the one-file executable
         run: >
           pyinstaller --onefile --noconsole
@@ -79,6 +99,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           name: Cadence ${{ steps.meta.outputs.version }}
           files: |
             cadence/dist/Cadence.exe
