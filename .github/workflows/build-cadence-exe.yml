@@ -68,4 +68,49 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/cadence-v')
         uses: softprops/action-gh-release@v2
         with:
-          files: cadence/dist/Cadence.exe
+          name: Cadence ${{ github.ref_name }}
+          files: |
+            cadence/dist/Cadence.exe
+            cadence/Cadence.ico
+          body: |
+            A music manager for a local library, with an interface modelled on
+            VS Code. Point it at one folder; it indexes that folder and
+            everything beneath it on every launch.
+
+            ## Download
+
+            **`Cadence.exe`** — self-contained, no Python needed. Windows 64-bit.
+
+            Windows SmartScreen will warn on first run because the executable is
+            not code-signed: choose **More info** then **Run anyway**.
+
+            On first launch it asks you to pick your music folder. After that it
+            rescans on every start, re-reading only the files whose size or
+            timestamp changed, so start-up stays fast. You can also pass the
+            folder directly:
+
+            ```
+            Cadence.exe --folder "D:\Music"
+            ```
+
+            It opens in a chromeless Chrome, Edge or Brave window, falling back
+            to your default browser if none of those are installed.
+
+            ## Also runs from source
+
+            `cadence/Cadence.py` is the whole program — one file, standard
+            library only, no `pip install`:
+
+            ```
+            python Cadence.py --folder "D:\Music"
+            ```
+
+            ## What it reads
+
+            Tags are parsed in-process for MP3 (ID3v2.2/2.3/2.4 and ID3v1),
+            FLAC, Ogg Vorbis, Opus, MP4/M4A, WAV and AIFF, including embedded
+            cover art. Playback uses the browser's audio engine, which covers
+            MP3, WAV, FLAC, M4A/AAC, Ogg and Opus.
+
+            Your audio files are opened read-only — no tags written, nothing
+            renamed or moved. The index and playlists live in `%APPDATA%\Cadence`.
