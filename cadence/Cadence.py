@@ -41,7 +41,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 APP_NAME = "Cadence"
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.1.2"
 DEFAULT_PORT = 8731
 
 # Extensions we will index. The ones we can actually parse tags for are listed
@@ -1537,6 +1537,19 @@ def install_update(library: "Library") -> dict:
 # back, and the Host header is checked to blunt DNS rebinding.
 # ---------------------------------------------------------------------------
 
+# A window that stops checking in is treated as gone.
+#
+# The long grace is deliberately longer than a minute: a browser throttles timers
+# in a hidden window down to roughly one a minute once it has been minimised for
+# a while, so a shorter grace would shut the server out from under a window that
+# is still open. It only governs the case where the window vanished without
+# saying so - a crash, or the browser being killed. A window that closes
+# normally sends word on its way out and gets the short grace, so the usual
+# shutdown is still a few seconds.
+HEARTBEAT_GRACE = 90.0
+CLOSING_GRACE = 3.0
+
+
 class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
@@ -1546,6 +1559,9 @@ class Server(ThreadingHTTPServer):
         self.library = library
         self.token = token
         self.started = time.time()
+        self.clients: dict[str, float] = {}   # window id -> time it stops counting as alive
+        self.seen_client = False
+        self.browser: subprocess.Popen | None = None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1733,6 +1749,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(result)
         if route == "/api/reveal":
             return self._json(self.reveal(int(payload.get("id", 0))))
+        if route == "/api/heartbeat":
+            client = str(payload.get("id", ""))[:64]
+            if client:
+                grace = CLOSING_GRACE if payload.get("closing") else HEARTBEAT_GRACE
+                self.server.clients[client] = time.time() + grace
+                self.server.seen_client = True
+            return self._json({"ok": True})
         if route == "/api/quit":
             threading.Thread(target=self._shutdown, daemon=True).start()
             return self._json({"ok": True})
@@ -1740,6 +1763,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _shutdown(self) -> None:
         time.sleep(0.3)
+        close_window(self.server)
         self.server.shutdown()
 
     # -- handlers -----------------------------------------------------------
@@ -3900,7 +3924,9 @@ function exportCurrent() {
   link.href = url; link.download = ''; document.body.appendChild(link); link.click(); link.remove();
 }
 async function quitApp() {
+  clearInterval(heartbeatTimer);
   await api('/api/quit', { body: {} }).catch(() => {});
+  try { window.close(); } catch { /* the browser may refuse; the page below says so */ }
   document.body.innerHTML =
     `<div class="empty" style="height:100vh"><h2>Cadence has stopped</h2>
      <p>The server was shut down. You can close this window.</p></div>`;
@@ -4398,6 +4424,37 @@ function wire() {
   addEventListener('contextmenu', e => { if (!e.target.closest('.trk, [data-ctx]')) e.preventDefault(); });
 }
 
+/* ---------- keep-alive ---------- */
+// Cadence is a background process with a browser window in front of it. Closing
+// that window tells the process nothing, so the page checks in and the server
+// stops once nobody is checking in. On the way out we say so explicitly, which
+// shortens the wait; a reload checks straight back in and cancels it.
+const CLIENT_ID = Math.random().toString(36).slice(2) + Date.now().toString(36);
+let heartbeatTimer = null;
+
+function heartbeat(closing) {
+  const url = `/api/heartbeat?t=${encodeURIComponent(state.token)}`;
+  const body = JSON.stringify({ id: CLIENT_ID, closing: !!closing });
+  if (closing && navigator.sendBeacon) {
+    // A normal fetch is cancelled as the page tears down; a beacon is not.
+    navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }));
+    return;
+  }
+  fetch(url, { method: 'POST', body, keepalive: true,
+               headers: { 'Content-Type': 'application/json' } }).catch(() => {});
+}
+
+function startHeartbeat() {
+  heartbeat(false);
+  clearInterval(heartbeatTimer);
+  heartbeatTimer = setInterval(() => heartbeat(false), 5000);
+  addEventListener('pagehide', () => heartbeat(true));
+  addEventListener('beforeunload', () => heartbeat(true));
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) heartbeat(false);
+  });
+}
+
 function syncWindowControls() {
   // A web page cannot minimise its own window, so the amber control is a
   // restore-down: it leaves full screen, and greys out when there is none.
@@ -4488,6 +4545,7 @@ async function boot() {
   else openWelcome();
 
   renderNowPlaying();
+  startHeartbeat();
   if (state.info.scanning) watchScan();
   if (prefOn('updates')) setTimeout(() => checkUpdate(true), 2500);
   out(`${state.info.app} ${state.info.version} ready · ${state.info.stats.tracks} tracks indexed`);
@@ -4537,7 +4595,7 @@ def _no_window_flags() -> dict:
     return {}
 
 
-def open_window(url: str) -> None:
+def open_window(url: str, server: "Server | None" = None) -> None:
     """Prefer a chromeless browser window so it reads as an app, not a tab."""
     candidates: list[list[str]] = []
     if sys.platform == "win32":
@@ -4570,12 +4628,14 @@ def open_window(url: str) -> None:
     profile = os.path.join(config_dir(), "window")
     for command in candidates:
         try:
-            subprocess.Popen(
+            process = subprocess.Popen(
                 command + [f"--app={url}", f"--user-data-dir={profile}",
                            "--window-size=1280,820", "--no-first-run",
                            "--no-default-browser-check"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 **_no_window_flags())
+            if server is not None:
+                server.browser = process
             return
         except Exception:
             continue
@@ -4583,6 +4643,35 @@ def open_window(url: str) -> None:
         webbrowser.open(url)
     except Exception:
         log("open this address in a browser:", url)
+
+
+def close_window(server: "Server") -> None:
+    """Shut the app window we launched, if it is still up."""
+    browser = getattr(server, "browser", None)
+    if browser is None or browser.poll() is not None:
+        return
+    try:
+        browser.terminate()
+    except Exception:
+        pass
+
+
+def watch_windows(server: "Server") -> None:
+    """Stop the server once every window has gone away.
+
+    Nothing tells a background process that its window was closed, so the page
+    checks in every few seconds and this gives up when nobody is checking in.
+    A server that has never had a window stays up: that is the --no-browser
+    case, where something else is driving it.
+    """
+    while True:
+        time.sleep(2.0)
+        now = time.time()
+        server.clients = {cid: until for cid, until in server.clients.items() if until > now}
+        if server.seen_client and not server.clients:
+            log("window closed - stopping")
+            server.shutdown()
+            return
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -4595,6 +4684,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--rescan", action="store_true", help="re-read every file, ignoring timestamps")
     parser.add_argument("--no-browser", action="store_true", help="start the server without opening a window")
     parser.add_argument("--no-scan", action="store_true", help="skip the launch scan")
+    parser.add_argument("--keep-alive", action="store_true",
+                        help="keep running after the window is closed")
     parser.add_argument("--write-icon", metavar="PATH", nargs="?", const="Cadence.ico",
                         help="write the app icon as a multi-resolution .ico and exit")
     parser.add_argument("--write-png", metavar="PATH", nargs="?", const="Cadence.png",
@@ -4649,9 +4740,11 @@ def main(argv: list[str] | None = None) -> int:
 
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
+    if not args.keep_alive:
+        threading.Thread(target=watch_windows, args=(server,), daemon=True).start()
     log(f"{APP_NAME} {APP_VERSION} listening on {url}")
     if not args.no_browser:
-        threading.Timer(0.4, open_window, args=(url,)).start()
+        threading.Timer(0.4, open_window, args=(url, server)).start()
     try:
         while thread.is_alive():
             thread.join(0.5)
