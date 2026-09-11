@@ -1,13 +1,15 @@
 name: Build Cadence.exe
 
 on:
+  # workflow_dispatch only appears in the Actions UI once this file is on the
+  # default branch, so pushes to the working branches trigger a build as well.
   workflow_dispatch:
   push:
+    branches:
+      - 'main'
+      - 'claude/**'
     tags:
       - 'cadence-v*'
-    paths:
-      - 'cadence/Cadence.py'
-      - '.github/workflows/build-cadence-exe.yml'
 
 permissions:
   contents: write
