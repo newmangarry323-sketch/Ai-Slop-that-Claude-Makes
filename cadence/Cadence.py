@@ -41,7 +41,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 APP_NAME = "Cadence"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 DEFAULT_PORT = 8731
 
 # Extensions we will index. The ones we can actually parse tags for are listed
@@ -2426,6 +2426,8 @@ UI_BODY = r"""
     <button class="item" id="st-sel" hidden><span id="st-sel-label"></span></button>
     <button class="item" id="st-format"><span id="st-format-label">-</span></button>
     <button class="item" id="st-count"><svg class="codicon" viewBox="0 0 24 24"><use href="#i-library"/></svg><span id="st-count-label">0 tracks</span></button>
+    <button class="item" id="st-version" title="Which build this is - click for preferences">
+      <span id="st-version-label"></span></button>
     <button class="item" id="st-update" hidden title="An update is available">
       <svg class="codicon" viewBox="0 0 24 24"><use href="#i-download"/></svg>
       <span id="st-update-label">Update</span></button>
@@ -4119,6 +4121,7 @@ function wire() {
   $('#scrim').addEventListener('click', () => { closeQuick(); closeModal(); });
   $('#st-theme').addEventListener('click', toggleTheme);
   $('#st-update').addEventListener('click', openPrefs);
+  $('#st-version').addEventListener('click', openPrefs);
   $('#activity .act[data-view="settings"]').title = 'Preferences';
   $('#st-play').addEventListener('click', togglePlay);
   $('#st-count').addEventListener('click', () => openTab(SOURCES.all()));
@@ -4457,6 +4460,7 @@ async function boot() {
       <p>${esc(err.message)}. Reload the page from the link the program printed.</p></div>`;
     return;
   }
+  $('#st-version-label').textContent = 'v' + state.info.version;
   const settings = state.info.settings || {};
   applyTheme(settings.theme || 'dark');
   applyAccent(settings.accent || 'Deep Blue');

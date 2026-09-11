@@ -4,6 +4,12 @@ Every release of Cadence, newest first. The version here is the value of
 `APP_VERSION` in `Cadence.py`, and each release is tagged `cadence-v<version>`
 on the commit that produced its executable.
 
+## 1.1.1
+
+- The running version now shows in the status bar, so which build you are on is
+  visible at a glance instead of buried in the settings tab. Clicking it opens
+  Preferences, where the update check lives.
+
 ## 1.1.0
 
 A preferences popup, an equalizer, Solarized, and update checking.
@@ -80,6 +86,7 @@ First release.
   draws its own icon, so `--write-icon` produces the `.ico` used to package it.
 - Windows executable built with PyInstaller by GitHub Actions.
 
+[1.1.1]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.1.1
 [1.1.0]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.1.0
 [1.0.1]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.0.1
 [1.0.0]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.0.0
