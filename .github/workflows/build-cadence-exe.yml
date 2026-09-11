@@ -146,6 +146,7 @@ jobs:
           pyinstaller --onefile --noconsole
           --name Cadence
           --icon Cadence.ico
+          --add-data "Cadence.ico;."
           --version-file version.txt
           Cadence.py
 

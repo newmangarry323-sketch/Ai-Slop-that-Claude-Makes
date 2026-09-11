@@ -97,6 +97,29 @@ counts, and cover art in the player and the details panel.
 sortable columns, search across title / artist / album / genre / filename, an
 artist → album tree, and "Reveal in File Manager".
 
+**Preferences.** The cog opens a popup holding the equalizer, the behaviour
+switches, theme and accent, and the update check.
+
+*Equalizer* — ten bands from 31 Hz to 16 kHz, a preamp, seven presets, and a
+limiter. The Web Audio graph is only built the first time you switch it on, so
+an untouched equalizer leaves playback exactly as it was.
+
+*Columns* — Artist, Album, Album artist, Genre, Track, Year, Format, Plays and
+Time can each be switched off. Number and Title always stay. A hidden tag is
+still read, still searchable and still shown in the Details panel; it is only
+kept out of the list.
+
+*Behaviour* — follow the playing track, single click plays, cover art in the
+player, animate the playing indicator, compact rows, rescan on launch, count
+plays, check for updates.
+
+**Updates.** Cadence asks GitHub at most once a day whether a newer release
+exists and shows a chip in the status bar when one does. The Windows build can
+download and install it: the new executable is written beside the running one,
+your current version is kept as `Cadence-previous.exe`, and Cadence restarts
+into the new build. Nothing is ever downloaded without you pressing the button,
+and the whole check can be switched off.
+
 ### Keyboard
 
 | | |
@@ -108,6 +131,22 @@ artist → album tree, and "Reveal in File Manager".
 | `S` · `R` · `M` | Shuffle · repeat · mute |
 | `Enter` · `Ctrl+A` · `Ctrl+C` · `Del` | Play selection · select all · copy path · remove |
 | `F5` | Rescan |
+
+## If the icon looks stale on Windows
+
+Windows keeps its own icon cache, and it does not always notice that a file's
+icon changed — especially when the new executable has the same name and path as
+the old one. If Cadence still shows an old icon after updating, clear the cache
+rather than reinstalling:
+
+```bat
+ie4uinit.exe -show
+```
+
+If that does not do it, sign out and back in. The icon inside the executable is
+the one this repository ships; you can confirm it by running
+`Cadence.exe --write-icon check.ico` and comparing that file with `Cadence.ico`
+— they are byte for byte identical.
 
 ## Your files
 
@@ -127,10 +166,17 @@ another page in your browser cannot read your library through the local port.
 
 ## Themes
 
-Dark and light, plus six accent ramps (Deep Blue, Midnight, Azure, Steel, Indigo,
-Teal) under **Settings**. The whole interface is tinted from one seven-stop ramp,
-so an accent change recolours the status bar, selection, buttons and tab markers
-together.
+Dark, Light, Solarized Dark and Solarized Light, plus six accent ramps (Deep
+Blue, Midnight, Azure, Steel, Indigo, Teal). Theme and accent are independent:
+the theme sets the surfaces, the accent tints the status bar, selection, buttons
+and tab markers from one seven-stop ramp. The status bar item on the right
+cycles through the themes.
+
+## Window controls
+
+The three dots at the left of the menu bar: red quits Cadence and stops the
+server, green goes full screen, amber leaves it. A web page cannot minimise its
+own window, so the amber control is a restore-down rather than a minimise.
 
 ## Releases
 

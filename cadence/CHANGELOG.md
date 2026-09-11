@@ -4,6 +4,43 @@ Every release of Cadence, newest first. The version here is the value of
 `APP_VERSION` in `Cadence.py`, and each release is tagged `cadence-v<version>`
 on the commit that produced its executable.
 
+## 1.1.0
+
+A preferences popup, an equalizer, Solarized, and update checking.
+
+- **Preferences popup.** The cog in the activity bar now opens a popup rather
+  than a settings tab. It holds the equalizer, the behaviour switches, theme
+  and accent, and the update check. The full settings tab is still there behind
+  **All settings…**, under **View**, and in the command palette.
+- **Equalizer.** Ten bands (31 Hz to 16 kHz), a preamp, seven presets, and a
+  limiter for when boosted bands would otherwise clip. Built on Web Audio
+  peaking filters. The audio graph is only created the first time the equalizer
+  is switched on, so leaving it alone leaves playback untouched.
+- **Choose which columns the track list shows.** Artist, Album, Album artist,
+  Genre, Track, Year, Format, Plays and Time can each be switched off; Number
+  and Title always stay. Hidden tags are still read, still searchable, and
+  still shown in the Details panel. Sorting falls back to the default order if
+  the column it was sorting by is hidden.
+- **Behaviour switches:** follow the playing track, single click plays, cover
+  art in the player, animate the playing indicator, compact rows, rescan on
+  launch, count plays, check for updates.
+- **Solarized Dark and Solarized Light** join Dark and Light. The status bar
+  now cycles through all four. Accent ramps are independent of the theme.
+- **Update checking.** Asks GitHub at most once a day whether a newer release
+  exists and shows a chip in the status bar when there is one. On the Windows
+  build it can download and install: the new executable is written beside the
+  running one, the current version is kept as `Cadence-previous.exe`, and
+  Cadence restarts into the new build. Nothing is downloaded without pressing
+  the button, and the check can be switched off.
+- **Window controls** sit at the left of the menu bar. Red quits Cadence and
+  stops the server; green goes full screen; amber leaves it. A web page cannot
+  minimise its own window, so amber is a restore-down rather than a minimise.
+- The app now serves a real `/favicon.ico` carrying all ten sizes, plus PNG and
+  SVG icons, so the window and taskbar have a proper icon to use. The `.ico` is
+  also packed inside the executable.
+- Fixed: the gear icon was a malformed hand-drawn path. It is now generated
+  from gear geometry — eight teeth and a hub.
+
 ## 1.0.1
 
 Sharper icon at high-DPI display scaling.
@@ -43,5 +80,6 @@ First release.
   draws its own icon, so `--write-icon` produces the `.ico` used to package it.
 - Windows executable built with PyInstaller by GitHub Actions.
 
+[1.1.0]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.1.0
 [1.0.1]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.0.1
 [1.0.0]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.0.0

@@ -36,11 +36,12 @@ import sys
 import threading
 import time
 import urllib.parse
+import urllib.request
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 APP_NAME = "Cadence"
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.1.0"
 DEFAULT_PORT = 8731
 
 # Extensions we will index. The ones we can actually parse tags for are listed
@@ -1338,7 +1339,40 @@ ICO_SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
 ICO_PNG_FROM = 64
 
 
-def build_ico(path: str, sizes: tuple[int, ...] = ICO_SIZES) -> str:
+def bundled_path(name: str) -> str | None:
+    """Locate a file PyInstaller packed into the executable, if there is one."""
+    base = getattr(sys, "_MEIPASS", None)
+    if base:
+        candidate = os.path.join(base, name)
+        if os.path.isfile(candidate):
+            return candidate
+    beside = os.path.join(os.path.dirname(running_exe()), name)
+    return beside if os.path.isfile(beside) else None
+
+
+_ICON_BYTES: dict[str, bytes] = {}
+
+
+def app_ico() -> bytes:
+    """The .ico the window and taskbar use: the packed copy, else drawn here."""
+    if "ico" not in _ICON_BYTES:
+        packed = bundled_path("Cadence.ico")
+        if packed:
+            with open(packed, "rb") as handle:
+                _ICON_BYTES["ico"] = handle.read()
+        else:
+            _ICON_BYTES["ico"] = ico_bytes()
+    return _ICON_BYTES["ico"]
+
+
+def app_png(size: int = 256) -> bytes:
+    key = f"png{size}"
+    if key not in _ICON_BYTES:
+        _ICON_BYTES[key] = png_bytes(size, render_icon(size))
+    return _ICON_BYTES[key]
+
+
+def ico_bytes(sizes: tuple[int, ...] = ICO_SIZES) -> bytes:
     images: list[tuple[int, bytes]] = []
     for size in sizes:
         rgba = render_icon(size)
@@ -1353,10 +1387,12 @@ def build_ico(path: str, sizes: tuple[int, ...] = ICO_SIZES) -> str:
         directory += struct.pack("<BBBBHHII", size & 0xFF, size & 0xFF, 0, 0, 1, 32,
                                  len(blob), offset)
         offset += len(blob)
-    with open(path, "wb") as fh:
-        fh.write(bytes(directory))
-        for _size, blob in images:
-            fh.write(blob)
+    return bytes(directory) + b"".join(blob for _size, blob in images)
+
+
+def build_ico(path: str, sizes: tuple[int, ...] = ICO_SIZES) -> str:
+    with open(path, "wb") as handle:
+        handle.write(ico_bytes(sizes))
     return path
 
 
@@ -1366,8 +1402,131 @@ def build_png(path: str, size: int = 1024) -> str:
     return path
 
 
-def icon_data_uri() -> str:
-    return "data:image/svg+xml;base64," + base64.b64encode(ICON_SVG.encode("utf-8")).decode("ascii")
+
+
+# ---------------------------------------------------------------------------
+# Updates
+#
+# Checks the project's GitHub releases for a newer version. Nothing is ever
+# downloaded or replaced without the user pressing the button: the check is a
+# single read-only request, cached for a day so a restart is not a new call.
+# ---------------------------------------------------------------------------
+
+UPDATE_REPO = "newmangarry323-sketch/Ai-Slop-that-Claude-Makes"
+UPDATE_API = f"https://api.github.com/repos/{UPDATE_REPO}/releases/latest"
+UPDATE_CACHE_SECONDS = 24 * 60 * 60
+TAG_PREFIX = "cadence-v"
+
+
+def version_tuple(text: str) -> tuple:
+    return tuple(int(part) for part in re.findall(r"\d+", str(text))[:4]) or (0,)
+
+
+def is_frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def running_exe() -> str:
+    return os.path.abspath(sys.executable if is_frozen() else sys.argv[0])
+
+
+def check_for_update(library: "Library", use_cache: bool = True) -> dict:
+    cached = library.get_setting("update_cache")
+    if use_cache and cached:
+        try:
+            payload = json.loads(cached)
+            if time.time() - payload.get("at", 0) < UPDATE_CACHE_SECONDS:
+                return payload["result"]
+        except Exception:
+            pass
+
+    import urllib.error
+    request = urllib.request.Request(
+        UPDATE_API,
+        headers={"Accept": "application/vnd.github+json",
+                 "User-Agent": f"{APP_NAME}/{APP_VERSION}"})
+    try:
+        with urllib.request.urlopen(request, timeout=12) as response:
+            release = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        return {"error": f"GitHub returned {exc.code}"}
+    except Exception as exc:
+        return {"error": f"Could not reach GitHub: {exc}"}
+
+    tag = str(release.get("tag_name", ""))
+    latest = tag[len(TAG_PREFIX):] if tag.startswith(TAG_PREFIX) else tag.lstrip("v")
+    asset = next((a for a in release.get("assets", [])
+                  if a.get("name", "").lower().endswith(".exe")), None)
+    result = {
+        "latest": latest,
+        "current": APP_VERSION,
+        "available": bool(latest) and version_tuple(latest) > version_tuple(APP_VERSION),
+        "url": release.get("html_url", ""),
+        "notes": (release.get("body") or "").strip(),
+        "asset": asset.get("browser_download_url") if asset else "",
+        "asset_size": asset.get("size", 0) if asset else 0,
+        "frozen": is_frozen(),
+    }
+    library.set_setting("update_cache", json.dumps({"at": time.time(), "result": result}))
+    return result
+
+
+def install_update(library: "Library") -> dict:
+    """Download the new executable and hand over to a helper that swaps them.
+
+    The running executable cannot overwrite itself on Windows, but it *can* be
+    renamed, so the helper renames the current one aside as a backup and moves
+    the download into its place. A failure at any point leaves both files on
+    disk rather than a half-written program.
+    """
+    if not is_frozen():
+        return {"error": "Running from source - update with git instead"}
+    if sys.platform != "win32":
+        return {"error": "In-place update is only wired up for the Windows build"}
+
+    info = check_for_update(library, use_cache=False)
+    if info.get("error"):
+        return info
+    if not info.get("available") or not info.get("asset"):
+        return {"error": "No newer build to install"}
+
+    current = running_exe()
+    folder = os.path.dirname(current)
+    download = os.path.join(folder, f"{APP_NAME}-{info['latest']}.download")
+    backup = os.path.join(folder, f"{APP_NAME}-previous.exe")
+
+    request = urllib.request.Request(
+        info["asset"], headers={"User-Agent": f"{APP_NAME}/{APP_VERSION}"})
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response, \
+                open(download, "wb") as handle:
+            shutil.copyfileobj(response, handle, 1024 * 256)
+    except Exception as exc:
+        if os.path.exists(download):
+            os.remove(download)
+        return {"error": f"Download failed: {exc}"}
+
+    size = os.path.getsize(download)
+    if size < 1_000_000:                      # a real build is far larger than this
+        os.remove(download)
+        return {"error": "Downloaded file looks wrong, leaving the current version alone"}
+
+    helper = os.path.join(folder, f"{APP_NAME}-update.cmd")
+    with open(helper, "w", encoding="ascii") as handle:
+        handle.write(
+            "@echo off\r\n"
+            "setlocal\r\n"
+            ":wait\r\n"
+            "timeout /t 1 /nobreak >nul\r\n"
+            f'tasklist /fi "PID eq {os.getpid()}" | find "{os.getpid()}" >nul && goto wait\r\n'
+            f'if exist "{backup}" del "{backup}"\r\n'
+            f'move /y "{current}" "{backup}" >nul || exit /b 1\r\n'
+            f'move /y "{download}" "{current}" >nul || (move /y "{backup}" "{current}" >nul & exit /b 1)\r\n'
+            f'start "" "{current}"\r\n'
+            'del "%~f0"\r\n')
+    subprocess.Popen(["cmd", "/c", helper], cwd=folder, close_fds=True,
+                     **_no_window_flags())
+    return {"ok": True, "size_mb": round(size / 1024 / 1024, 1), "version": info["latest"]}
 
 
 # ---------------------------------------------------------------------------
@@ -1459,7 +1618,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, ICON_SVG.encode("utf-8"), "image/svg+xml",
                               {"Cache-Control": "max-age=86400"})
         if route == "/favicon.ico":
-            return self._send(204, b"", "image/x-icon")
+            return self._send(200, app_ico(), "image/x-icon",
+                              {"Cache-Control": "max-age=86400"})
+        if route == "/icon.png":
+            try:
+                size = max(16, min(512, int(query.get("size", ["256"])[0])))
+            except ValueError:
+                size = 256
+            return self._send(200, app_png(size), "image/png",
+                              {"Cache-Control": "max-age=86400"})
 
         if not route.startswith("/api/"):
             return self._error(404, "not found")
@@ -1479,6 +1646,9 @@ class Handler(BaseHTTPRequestHandler):
             for playlist in playlists:
                 playlist["tracks"] = self.library.playlist_tracks(playlist["id"])
             return self._json({"playlists": playlists})
+        if route == "/api/update/check":
+            cached = query.get("cached", ["0"])[0] in ("1", "true")
+            return self._json(check_for_update(self.library, use_cache=cached))
         if route == "/api/browse":
             return self._json(self.browse(query.get("path", [""])[0]))
         if route == "/api/art":
@@ -1520,8 +1690,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True})
         if route == "/api/setting":
             key = str(payload.get("key", ""))
-            if key not in ("theme", "accent", "sidebar_width", "panel_height",
-                           "volume", "repeat", "shuffle", "columns", "view"):
+            allowed = {"theme", "accent", "sidebar_width", "panel_height", "volume",
+                       "repeat", "shuffle", "columns", "view", "eq"}
+            if key not in allowed and not key.startswith("pref_"):
                 return self._error(400, "unknown setting")
             library.set_setting(key, str(payload.get("value", "")))
             return self._json({"ok": True})
@@ -1554,6 +1725,12 @@ class Handler(BaseHTTPRequestHandler):
             library.set_playlist_order(int(payload["id"]),
                                        [int(i) for i in payload.get("tracks", [])])
             return self._json({"ok": True})
+        if route == "/api/update/install":
+            result = install_update(library)
+            if result.get("error"):
+                return self._error(400, result["error"])
+            threading.Thread(target=self._shutdown, daemon=True).start()
+            return self._json(result)
         if route == "/api/reveal":
             return self._json(self.reveal(int(payload.get("id", 0))))
         if route == "/api/quit":
@@ -1762,6 +1939,25 @@ UI_STYLE = r"""<style>
   --ui:"Segoe UI",system-ui,-apple-system,"Ubuntu","Droid Sans",sans-serif;
   --row-h:24px;
 }
+/* Solarized, by Ethan Schoonover: base03..base3 for surfaces, base01/base0 for text. */
+html[data-theme="solarized-dark"] {
+  --bg-editor:#002b36; --bg-side:#073642; --bg-activity:#00252e;
+  --bg-title:#073642; --bg-panel:#00252e; --bg-input:#073642;
+  --bg-hover:#0a4250; --bg-widget:#073642; --bg-drop:#002b36;
+  --fg:#93a1a1; --fg-muted:#839496; --fg-strong:#fdf6e3; --fg-faint:#586e75;
+  --border:#0a4b5c; --border-soft:#073642; --shadow:rgba(0,20,26,.6);
+  --sel:#0a4250; --sel-inactive:#073642;
+  --ok:#859900; --warn:#b58900; --err:#dc322f;
+}
+html[data-theme="solarized-light"] {
+  --bg-editor:#fdf6e3; --bg-side:#eee8d5; --bg-activity:#e4ddc8;
+  --bg-title:#eee8d5; --bg-panel:#f5efdc; --bg-input:#fdf6e3;
+  --bg-hover:#e4ddc8; --bg-widget:#eee8d5; --bg-drop:#fdf6e3;
+  --fg:#586e75; --fg-muted:#657b83; --fg-strong:#002b36; --fg-faint:#93a1a1;
+  --border:#d9d2bd; --border-soft:#e4ddc8; --shadow:rgba(88,110,117,.22);
+  --sel:#dbe6ea; --sel-inactive:#e4ddc8;
+  --ok:#859900; --warn:#b58900; --err:#dc322f;
+}
 html[data-theme="light"] {
   --bg-editor:#ffffff; --bg-side:#f3f3f3; --bg-activity:#e8e8e8;
   --bg-title:#dddddd; --bg-panel:#f8f8f8; --bg-input:#ffffff;
@@ -1794,7 +1990,20 @@ input,select{font:inherit}
   grid-template-areas:"title title title" "activity side editor" "status status status";}
 #titlebar{grid-area:title;background:var(--bg-title);display:flex;align-items:center;
   gap:2px;padding:0 8px;border-bottom:1px solid var(--border-soft);-webkit-app-region:drag}
-#titlebar img{width:17px;height:17px;margin-right:6px}
+#titlebar img{width:17px;height:17px;margin:0 8px 0 4px}
+#wincontrols{display:flex;align-items:center;gap:8px;padding:0 8px 0 2px;-webkit-app-region:no-drag}
+.win{width:12px;height:12px;border-radius:50%;flex:0 0 auto;position:relative;
+  border:1px solid rgba(0,0,0,.2)}
+.win.close{background:#ff5f57}
+.win.min{background:#febc2e}
+.win.max{background:#28c840}
+.win[disabled]{background:#6b6b6b;border-color:transparent;cursor:default}
+.win::after{position:absolute;inset:0;display:grid;place-items:center;font-size:9px;
+  line-height:1;color:rgba(0,0,0,.55);opacity:0;font-weight:700}
+#wincontrols:hover .win:not([disabled])::after{opacity:1}
+.win.close::after{content:"\00d7";font-size:11px}
+.win.min::after{content:"\2013"}
+.win.max::after{content:"\2922";font-size:10px}
 .menu{position:relative}
 .menu>button{padding:3px 8px;border-radius:4px;font-size:12px;color:var(--fg)}
 .menu>button:hover,.menu.open>button{background:rgba(128,128,128,.22)}
@@ -2032,9 +2241,53 @@ input,select{font:inherit}
 .stats div{background:var(--bg-editor);padding:9px 12px}
 .stats b{display:block;font-size:17px;font-weight:500;color:var(--fg-strong);font-family:var(--mono)}
 .stats span{font-size:11px;color:var(--fg-muted);text-transform:uppercase;letter-spacing:.4px}
+.checks{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:2px 10px}
+.checks label{display:flex;align-items:center;gap:7px;padding:3px 5px;border-radius:3px;
+  cursor:pointer;font-size:12px;text-transform:none;letter-spacing:0;color:var(--fg)}
+.checks label:hover{background:var(--bg-hover)}
+.checks input{accent-color:var(--a400);width:13px;height:13px;cursor:pointer;margin:0}
 .swatches{display:flex;gap:8px;flex-wrap:wrap}
 .swatch{width:30px;height:30px;border-radius:4px;border:2px solid transparent;cursor:pointer}
 .swatch.on{border-color:var(--fg-strong)}
+
+/* ---------- preferences popup ---------- */
+.modal.wide{width:min(860px,94vw)}
+.prefcols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:22px}
+.prefcols section{min-width:0}
+.prefcols h4{display:flex;align-items:center;gap:7px;font-size:11px;text-transform:uppercase;
+  letter-spacing:.5px;color:var(--fg-muted);font-weight:700;margin-bottom:9px;
+  padding-bottom:6px;border-bottom:1px solid var(--border-soft)}
+.prefcols h4 .codicon{width:14px;height:14px}
+label.sw{display:flex;align-items:flex-start;gap:8px;padding:4px 5px;border-radius:3px;
+  cursor:pointer;font-size:12px;line-height:1.5}
+label.sw:hover{background:var(--bg-hover)}
+label.sw input{accent-color:var(--a400);width:13px;height:13px;margin:2px 0 0;cursor:pointer;flex:0 0 auto}
+label.sw em{display:block;font-style:normal;color:var(--fg-faint);font-size:11px}
+label.pick{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  font-size:12px;padding:4px 5px}
+label.pick select,.eqfoot select{background:var(--bg-input);color:var(--fg);
+  border:1px solid var(--border);border-radius:3px;padding:3px 6px;font-size:12px;outline:none}
+label.pick select:focus,.eqfoot select:focus{border-color:var(--a400)}
+.eq{margin:6px 0 4px;transition:opacity .15s}
+.eq.off{opacity:.4;pointer-events:none}
+.eqrow{display:flex;gap:2px;justify-content:space-between;padding:8px 2px 4px;
+  background:var(--bg-editor);border:1px solid var(--border-soft);border-radius:4px}
+.band{display:flex;flex-direction:column;align-items:center;gap:3px;flex:1;min-width:0}
+.band input[type=range]{-webkit-appearance:slider-vertical;appearance:slider-vertical;
+  writing-mode:vertical-lr;direction:rtl;width:18px;height:96px;accent-color:var(--a400);cursor:ns-resize}
+.band .db{font-family:var(--mono);font-size:10px;color:var(--fg)}
+.band .hz{font-family:var(--mono);font-size:9px;color:var(--fg-faint)}
+.eqfoot{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:9px;font-size:12px}
+.eqfoot label{display:flex;align-items:center;gap:7px;color:var(--fg-muted)}
+.eqfoot input[type=range]{width:96px;accent-color:var(--a400);cursor:pointer}
+.eqfoot span{font-family:var(--mono);font-size:11px;color:var(--fg)}
+.updbox .hint{font-size:12px;line-height:1.7;margin-bottom:8px}
+.relnotes{font-size:11px;line-height:1.6;color:var(--fg-muted);background:var(--bg-editor);
+  border:1px solid var(--border-soft);border-radius:4px;padding:8px 10px;max-height:120px;
+  overflow:auto;white-space:pre-wrap}
+a.btn{text-decoration:none;display:inline-block}
+html.no-anim .trk .eq i{animation:none;height:6px}
+html.no-anim .spin{animation:none}
 
 #ctx{position:fixed;z-index:110;background:var(--bg-widget);border:1px solid var(--border);
   border-radius:5px;box-shadow:0 6px 18px var(--shadow);padding:4px;min-width:210px;display:none}
@@ -2064,7 +2317,7 @@ UI_BODY = r"""
     <g id="i-search"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></g>
     <g id="i-playlist"><path d="M3 6h11M3 11h11M3 16h7"/><circle cx="17.5" cy="17" r="3"/><path d="M20.5 17V8l3 1"/></g>
     <g id="i-queue"><path d="M3 5h12M3 10h12M3 15h7M3 20h7"/><path d="M17 10v10M13.5 16.5L17 20l3.5-3.5"/></g>
-    <g id="i-settings"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 14.5a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5v.2a2 2 0 11-4 0v-.1a1.6 1.6 0 00-1-1.5 1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.6 1.6 0 00.3-1.8 1.6 1.6 0 00-1.5-1H3a2 2 0 010-4h.1a1.6 1.6 0 001.5-1 1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.6 1.6 0 001.8.3H11a1.6 1.6 0 001-1.5V3a2 2 0 014 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 00-.3 1.8V11a1.6 1.6 0 001.5 1h.2a2 2 0 010 4h-.1a1.6 1.6 0 00-1.5 1z"/></g>
+    <g id="i-settings"><path d="M10.23 1.95L13.77 1.95L13.86 4.53L15.97 5.40L17.85 3.64L20.36 6.15L18.60 8.03L19.47 10.14L22.05 10.23L22.05 13.77L19.47 13.86L18.60 15.97L20.36 17.85L17.85 20.36L15.97 18.60L13.86 19.47L13.77 22.05L10.23 22.05L10.14 19.47L8.03 18.60L6.15 20.36L3.64 17.85L5.40 15.97L4.53 13.86L1.95 13.77L1.95 10.23L4.53 10.14L5.40 8.03L3.64 6.15L6.15 3.64L8.03 5.40L10.14 4.53Z"/><circle cx="12" cy="12" r="3.4"/></g>
     <g id="i-chev"><path d="M9 6l6 6-6 6"/></g>
     <g id="i-play"><path d="M7 4.5l13 7.5-13 7.5z" fill="currentColor" stroke="none"/></g>
     <g id="i-pause"><path d="M7 4h4v16H7zM13 4h4v16h-4z" fill="currentColor" stroke="none"/></g>
@@ -2085,12 +2338,22 @@ UI_BODY = r"""
     <g id="i-star"><path d="M12 3.5l2.6 5.6 6 .8-4.4 4.2 1.1 6-5.3-2.9-5.3 2.9 1.1-6L3.4 9.9l6-.8z"/></g>
     <g id="i-warn"><path d="M12 3l9.5 17H2.5z"/><path d="M12 9.5v5M12 17.2v.1"/></g>
     <g id="i-check"><path d="M4 12.5l5.5 5.5L20 6"/></g>
+    <g id="i-minimise"><path d="M5 12h14"/></g>
+    <g id="i-maximise"><rect x="4.5" y="4.5" width="15" height="15" rx="2"/></g>
+    <g id="i-restore"><rect x="4.5" y="7.5" width="12" height="12" rx="2"/><path d="M8 7.5V6a1.5 1.5 0 011.5-1.5H18A1.5 1.5 0 0119.5 6v8.5A1.5 1.5 0 0118 16h-1.5"/></g>
+    <g id="i-download"><path d="M12 3v12"/><path d="M7 10.5l5 5 5-5"/><path d="M4 20h16"/></g>
+    <g id="i-sliders"><path d="M5 6h14M5 12h14M5 18h14"/><circle cx="9" cy="6" r="2.2"/><circle cx="15" cy="12" r="2.2"/><circle cx="8" cy="18" r="2.2"/></g>
     <g id="i-pin"><path d="M12 2v9M8 11h8l1.5 5H6.5zM12 16v6"/></g>
   </defs>
 </svg>
 
 <div id="shell">
   <div id="titlebar">
+    <div id="wincontrols">
+      <button class="win close" id="win-close" title="Quit Cadence" aria-label="Quit"></button>
+      <button class="win min" id="win-restore" title="Leave full screen" aria-label="Restore"></button>
+      <button class="win max" id="win-max" title="Full screen" aria-label="Full screen"></button>
+    </div>
     <img id="app-icon" alt="">
     <div class="menu" data-menu="file"><button>File</button><div class="menu-pop" id="menu-file"></div></div>
     <div class="menu" data-menu="edit"><button>Edit</button><div class="menu-pop" id="menu-edit"></div></div>
@@ -2163,7 +2426,10 @@ UI_BODY = r"""
     <button class="item" id="st-sel" hidden><span id="st-sel-label"></span></button>
     <button class="item" id="st-format"><span id="st-format-label">-</span></button>
     <button class="item" id="st-count"><svg class="codicon" viewBox="0 0 24 24"><use href="#i-library"/></svg><span id="st-count-label">0 tracks</span></button>
-    <button class="item" id="st-theme" title="Toggle theme"><span id="st-theme-label">Dark</span></button>
+    <button class="item" id="st-update" hidden title="An update is available">
+      <svg class="codicon" viewBox="0 0 24 24"><use href="#i-download"/></svg>
+      <span id="st-update-label">Update</span></button>
+    <button class="item" id="st-theme" title="Cycle theme"><span id="st-theme-label">Dark</span></button>
   </footer>
 </div>
 
@@ -2186,7 +2452,7 @@ UI_BODY = r"""
 UI_SCRIPT_CORE = r"""
 const $  = (s, r) => (r || document).querySelector(s);
 const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
-const ROW_H = 24;
+let ROW_H = 24;
 
 const state = {
   token: window.CADENCE_TOKEN,
@@ -2198,6 +2464,9 @@ const state = {
   activeTab: null,
   view: 'library',
   sort: { key: 'default', dir: 1 },
+  columns: [],
+  prefs: {},
+  update: {},
   sel: new Set(),
   anchor: -1,
   search: '',
@@ -2272,26 +2541,50 @@ function out(line) {
 }
 
 /* ---------- columns & sorting ---------- */
+// `fixed` columns are always drawn - a track list with no number or title is
+// not much of a list. Everything else is switched on and off under Settings.
 const COLUMNS = [
-  { key: 'index',    label: '#',      width: '48px',   cls: 'num' },
-  { key: 'title',    label: 'Title',  width: 'minmax(140px,3fr)' },
-  { key: 'artist',   label: 'Artist', width: 'minmax(100px,2fr)' },
-  { key: 'album',    label: 'Album',  width: 'minmax(100px,2fr)' },
-  { key: 'genre',    label: 'Genre',  width: 'minmax(70px,1fr)' },
-  { key: 'year',     label: 'Year',   width: '54px',   cls: 'year' },
-  { key: 'duration', label: 'Time',   width: '58px',   cls: 'dur' },
+  { key: 'index',       label: '#',            width: '48px',   cls: 'num', fixed: true },
+  { key: 'title',       label: 'Title',        width: 'minmax(140px,3fr)',  fixed: true },
+  { key: 'artist',      label: 'Artist',       width: 'minmax(100px,2fr)' },
+  { key: 'album',       label: 'Album',        width: 'minmax(100px,2fr)' },
+  { key: 'albumartist', label: 'Album artist', width: 'minmax(100px,2fr)' },
+  { key: 'genre',       label: 'Genre',        width: 'minmax(70px,1fr)' },
+  { key: 'track',       label: 'Track',        width: '58px',   cls: 'year', numeric: true },
+  { key: 'year',        label: 'Year',         width: '54px',   cls: 'year', numeric: true },
+  { key: 'codec',       label: 'Format',       width: '74px' },
+  { key: 'plays',       label: 'Plays',        width: '56px',   cls: 'year', numeric: true },
+  { key: 'duration',    label: 'Time',         width: '58px',   cls: 'dur',  numeric: true },
 ];
+const OPTIONAL_COLUMNS = COLUMNS.filter(c => !c.fixed);
+// The set shown before anyone changes anything, i.e. what the list looked like
+// when every column was hard-coded.
+const DEFAULT_COLUMNS = ['artist', 'album', 'genre', 'year', 'duration'];
+
+const visibleColumns = () => COLUMNS.filter(c => c.fixed || state.columns.includes(c.key));
+
+function setColumn(key, on) {
+  const wanted = new Set(state.columns);
+  on ? wanted.add(key) : wanted.delete(key);
+  // Keep the configured order rather than the order they were ticked in.
+  state.columns = OPTIONAL_COLUMNS.filter(c => wanted.has(c.key)).map(c => c.key);
+  saveSetting('columns', state.columns.join(','));
+  if (state.sort.key !== 'default' && !visibleColumns().some(c => c.key === state.sort.key)) {
+    state.sort = { key: 'default', dir: 1 };   // the sorted column just went away
+  }
+}
 
 function sortTracks(list) {
   const { key, dir } = state.sort;
   const copy = list.slice();
   if (key === 'default') return copy;
   const text = v => String(v == null ? '' : v).toLowerCase();
+  const column = COLUMNS.find(c => c.key === key);
+  const numeric = (column && column.numeric) || key === 'added';
   copy.sort((a, b) => {
     let x, y;
-    if (key === 'duration' || key === 'year' || key === 'plays' || key === 'added') {
-      x = a[key] || 0; y = b[key] || 0;
-    } else { x = text(a[key]); y = text(b[key]); }
+    if (numeric) { x = a[key] || 0; y = b[key] || 0; }
+    else { x = text(a[key]); y = text(b[key]); }
     if (x < y) return -dir;
     if (x > y) return dir;
     return text(a.album) < text(b.album) ? -1 : (a.track || 0) - (b.track || 0);
@@ -2380,8 +2673,9 @@ function renderList() {
   head.hidden = false; sizer.hidden = false;
 
   state.rows = tracksForTab(tab);
-  $('#editor').style.setProperty('--cols', COLUMNS.map(c => c.width).join(' '));
-  head.innerHTML = COLUMNS.map(c => {
+  const cols = visibleColumns();
+  $('#editor').style.setProperty('--cols', cols.map(c => c.width).join(' '));
+  head.innerHTML = cols.map(c => {
     const sorted = state.sort.key === c.key;
     return `<div class="col ${c.cls || ''} ${sorted ? 'sorted' : ''}" data-sort="${c.key}">
       <span>${esc(c.label)}</span><span class="arrow">${sorted ? (state.sort.dir > 0 ? '▲' : '▼') : '▲'}</span></div>`;
@@ -2405,22 +2699,31 @@ function paintRows() {
   const top = wrap.scrollTop;
   const first = Math.max(0, Math.floor(top / ROW_H) - 10);
   const last = Math.min(total, Math.ceil((top + wrap.clientHeight) / ROW_H) + 10);
+  const cols = visibleColumns();
   const parts = [];
   for (let i = first; i < last; i++) {
     const t = state.rows[i];
     const playing = player.current && player.current.id === t.id;
+    const cells = cols.map(c => {
+      const value = cellValue(c, t, i, playing);
+      const tip = c.key === 'index' || c.numeric ? '' : ` title="${esc(t[c.key] || '')}"`;
+      return `<div class="c ${c.cls || ''}"${tip}>${value}</div>`;
+    }).join('');
     parts.push(`<div class="trk ${state.sel.has(i) ? 'sel' : ''} ${playing ? 'cur' : ''}"
-      data-i="${i}" data-id="${t.id}" style="top:${i * ROW_H}px">
-      <div class="c num">${playing ? '<span class="eq"><i></i><i></i><i></i></span>' : (i + 1)}</div>
-      <div class="c" title="${esc(t.title)}">${esc(t.title)}</div>
-      <div class="c" title="${esc(t.artist)}">${esc(t.artist)}</div>
-      <div class="c" title="${esc(t.album)}">${esc(t.album)}</div>
-      <div class="c">${esc(t.genre || '')}</div>
-      <div class="c year">${t.year || ''}</div>
-      <div class="c dur">${fmtTime(t.duration)}</div>
-    </div>`);
+      data-i="${i}" data-id="${t.id}" style="top:${i * ROW_H}px">${cells}</div>`);
   }
   $('#list-rows').innerHTML = parts.join('');
+}
+
+function cellValue(column, track, index, playing) {
+  switch (column.key) {
+    case 'index':    return playing ? '<span class="eq"><i></i><i></i><i></i></span>' : (index + 1);
+    case 'duration': return fmtTime(track.duration);
+    case 'year':
+    case 'track':    return track[column.key] || '';
+    case 'plays':    return track.plays || '';
+    default:         return esc(track[column.key] || '');
+  }
 }
 
 function emptyHtml(tab) {
@@ -2690,6 +2993,16 @@ function settingsTabHtml() {
       <div class="hint">Recolours the status bar, selection, buttons and the active tab marker.</div>
     </div>
 
+    <div class="field"><label>Track list columns</label>
+      <div class="checks">${OPTIONAL_COLUMNS.map(c => `
+        <label><input type="checkbox" data-col="${c.key}"
+          ${state.columns.includes(c.key) ? 'checked' : ''}> ${esc(c.label)}</label>`).join('')}
+      </div>
+      <div class="hint">Number and Title are always shown. Unticked details are
+      hidden from the track list — the tags are still read and still searchable,
+      and the Details panel keeps showing everything for the selected track.</div>
+    </div>
+
     <div class="field"><label>Library</label>
       <div class="stats">
         <div><b>${stats.tracks || 0}</b><span>Tracks</span></div>
@@ -2757,10 +3070,22 @@ function playAt(pos) {
   audio.play().catch(err => {
     if (err && err.name !== 'AbortError') toast('Cannot play: ' + err.message, 'err');
   });
-  api('/api/played', { body: { id: track.id } }).catch(() => {});
-  track.plays = (track.plays || 0) + 1;
+  if (prefOn('countplays')) {
+    api('/api/played', { body: { id: track.id } }).catch(() => {});
+    track.plays = (track.plays || 0) + 1;
+  }
   renderNowPlaying();
   paintRows();
+  if (prefOn('follow')) {
+    const at = state.rows.findIndex(r => r.id === track.id);
+    if (at >= 0) {
+      const wrap = $('#list-wrap');
+      const top = at * ROW_H, bottom = top + ROW_H;
+      if (top < wrap.scrollTop || bottom > wrap.scrollTop + wrap.clientHeight) {
+        wrap.scrollTop = top - wrap.clientHeight / 2 + ROW_H;
+      }
+    }
+  }
   if (state.view === 'queue') renderSide();
   document.title = `${track.title} · ${track.artist} — Cadence`;
 }
@@ -2804,7 +3129,7 @@ function renderNowPlaying() {
       track.codec, track.bitrate ? Math.round(track.bitrate / 1000) + ' kbps' : '',
       track.samplerate ? (track.samplerate / 1000).toFixed(1) + ' kHz' : '',
     ].filter(Boolean).join(' · ') || '-';
-    art.innerHTML = track.has_art
+    art.innerHTML = track.has_art && prefOn('art')
       ? `<img src="${artUrl(track.id)}" alt="" onerror="this.remove()">`
       : icon('note');
     $('#t-end').textContent = fmtTime(track.duration);
@@ -2934,7 +3259,8 @@ function commandList() {
     { label: 'View: Search', key: 'Ctrl+Shift+F', run: () => setView('search') },
     { label: 'View: Playlists', key: 'Ctrl+Shift+Y', run: () => setView('playlists') },
     { label: 'View: Queue', key: 'Ctrl+Shift+Q', run: () => setView('queue') },
-    { label: 'View: Settings', run: () => openSettingsTab() },
+    { label: 'View: Preferences…', run: () => openPrefs() },
+    { label: 'View: All Settings', run: () => openSettingsTab() },
     { label: 'View: Toggle Theme', run: () => toggleTheme() },
     { label: 'Playback: Play / Pause', key: 'Space', run: () => togglePlay() },
     { label: 'Playback: Next Track', key: 'Ctrl+Right', run: () => next() },
@@ -3003,24 +3329,289 @@ const hideContext = () => $('#ctx').classList.remove('on');
 """
 
 
+UI_SCRIPT_PREFS = r"""
+/* ---------- preferences ---------- */
+// Everything here is a plain on/off (or small value) stored server-side, so a
+// choice survives a restart. Defaults reproduce the behaviour before the
+// preferences panel existed.
+const PREFS = [
+  { key: 'follow',     label: 'Follow the playing track',
+    hint: 'Scroll the list to keep the current track in view', def: true },
+  { key: 'singleclick', label: 'Single click plays',
+    hint: 'Otherwise a track starts on double click', def: false },
+  { key: 'art',        label: 'Cover art in the player', def: true },
+  { key: 'animate',    label: 'Animate the playing indicator', def: true },
+  { key: 'compact',    label: 'Compact rows', hint: 'Tighter row height', def: false },
+  { key: 'scanlaunch', label: 'Rescan the folder on launch', def: true },
+  { key: 'countplays', label: 'Count plays', def: true },
+  { key: 'updates',    label: 'Check for updates',
+    hint: 'Asks GitHub once a day whether a newer release exists', def: true },
+];
+const prefOn = key => {
+  const entry = PREFS.find(p => p.key === key);
+  const stored = state.prefs[key];
+  return stored === undefined ? (entry ? entry.def : false) : stored === '1';
+};
+function setPref(key, on) {
+  state.prefs[key] = on ? '1' : '0';
+  saveSetting('pref_' + key, on ? '1' : '0');
+  applyPrefs();
+}
+function applyPrefs() {
+  document.documentElement.style.setProperty('--row-h', prefOn('compact') ? '20px' : '24px');
+  document.documentElement.classList.toggle('no-anim', !prefOn('animate'));
+  ROW_H = prefOn('compact') ? 20 : 24;
+  if (state.rows.length) renderList();
+  renderNowPlaying();
+}
+
+/* ---------- equalizer ---------- */
+// A ten-band peaking filter chain on the audio element. The graph is built the
+// first time the equalizer is switched on: routing an element through Web Audio
+// is one-way, so an untouched equalizer leaves playback completely alone.
+const EQ_BANDS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+const EQ_PRESETS = {
+  'Flat':         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  'Bass boost':   [6, 5, 4, 2, 0, 0, 0, 0, 0, 0],
+  'Bass cut':     [-6, -5, -3, -1, 0, 0, 0, 0, 0, 0],
+  'Vocal':        [-2, -2, 0, 2, 4, 4, 3, 1, 0, 0],
+  'Treble boost': [0, 0, 0, 0, 0, 1, 3, 4, 5, 5],
+  'Loudness':     [5, 4, 2, 0, -1, -1, 0, 2, 4, 5],
+  'Radio':        [-4, -3, 0, 3, 4, 3, 2, 0, -2, -4],
+};
+
+const eq = { ctx: null, source: null, preampNode: null, filters: [], limiterNode: null,
+             gains: EQ_BANDS.map(() => 0), preamp: 0, on: false, limiter: false };
+
+function eqBuild() {
+  if (eq.ctx) return true;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) { toast('This browser has no Web Audio support', 'err'); return false; }
+  try {
+    eq.ctx = new Ctx();
+    eq.source = eq.ctx.createMediaElementSource(audio);
+    eq.preampNode = eq.ctx.createGain();
+    eq.filters = EQ_BANDS.map((hz, i) => {
+      const f = eq.ctx.createBiquadFilter();
+      f.type = 'peaking';
+      f.frequency.value = hz;
+      f.Q.value = 1.1;
+      f.gain.value = 0;
+      return f;
+    });
+    eq.limiterNode = eq.ctx.createDynamicsCompressor();
+    eq.limiterNode.threshold.value = -3;
+    eq.limiterNode.knee.value = 0;
+    eq.limiterNode.ratio.value = 20;
+    eq.limiterNode.attack.value = 0.003;
+    eq.limiterNode.release.value = 0.25;
+    let node = eq.source.connect(eq.preampNode);
+    eq.filters.forEach(f => { node = node.connect(f); });
+    node.connect(eq.limiterNode).connect(eq.ctx.destination);
+    // The limiter sits in the chain permanently; with ratio 20 and a -3 dB
+    // threshold it only engages once something is actually pushed into it, and
+    // switching it "off" simply moves the threshold above any real signal.
+    eqApply();
+    return true;
+  } catch (err) {
+    toast('Could not start the equalizer: ' + err.message, 'err');
+    eq.ctx = null;
+    return false;
+  }
+}
+
+function eqApply() {
+  if (!eq.ctx) return;
+  if (eq.ctx.state === 'suspended') eq.ctx.resume().catch(() => {});
+  eq.filters.forEach((f, i) => { f.gain.value = eq.on ? eq.gains[i] : 0; });
+  eq.preampNode.gain.value = eq.on ? Math.pow(10, eq.preamp / 20) : 1;
+  eq.limiterNode.threshold.value = eq.limiter ? -3 : 0;
+  eq.limiterNode.ratio.value = eq.limiter ? 20 : 1;
+}
+
+function eqSave() {
+  saveSetting('eq', JSON.stringify({ on: eq.on, limiter: eq.limiter,
+                                     preamp: eq.preamp, gains: eq.gains }));
+}
+function eqLoad(raw) {
+  if (!raw) return;
+  try {
+    const saved = JSON.parse(raw);
+    eq.on = !!saved.on;
+    eq.limiter = !!saved.limiter;
+    eq.preamp = Number(saved.preamp) || 0;
+    if (Array.isArray(saved.gains) && saved.gains.length === EQ_BANDS.length) {
+      eq.gains = saved.gains.map(g => Math.max(-12, Math.min(12, Number(g) || 0)));
+    }
+  } catch { /* a corrupt setting just means defaults */ }
+  if (eq.on) { eqBuild(); eqApply(); }
+}
+
+const hz = f => f >= 1000 ? (f / 1000) + 'k' : String(f);
+
+/* ---------- preferences popup ---------- */
+function prefsHtml() {
+  const theme = document.documentElement.dataset.theme || 'dark';
+  const themes = [['dark', 'Dark'], ['light', 'Light'],
+                  ['solarized-dark', 'Solarized Dark'], ['solarized-light', 'Solarized Light']];
+  const update = state.update || {};
+  return `
+    <div class="prefcols">
+      <section>
+        <h4>${icon('sliders')} Equalizer</h4>
+        <label class="sw"><input type="checkbox" data-pref-eq="on" ${eq.on ? 'checked' : ''}>
+          <span>Enable equalizer</span></label>
+        <div class="eq ${eq.on ? '' : 'off'}">
+          <div class="eqrow">
+            ${EQ_BANDS.map((f, i) => `
+              <div class="band">
+                <input type="range" data-eq-band="${i}" min="-12" max="12" step="0.5"
+                  value="${eq.gains[i]}" orient="vertical" aria-label="${hz(f)} hertz">
+                <span class="db" data-eq-db="${i}">${eq.gains[i] > 0 ? '+' : ''}${eq.gains[i]}</span>
+                <span class="hz">${hz(f)}</span>
+              </div>`).join('')}
+          </div>
+          <div class="eqfoot">
+            <label>Preset
+              <select data-eq-preset>
+                <option value="">Custom</option>
+                ${Object.keys(EQ_PRESETS).map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}
+              </select></label>
+            <label>Preamp
+              <input type="range" data-eq-preamp min="-12" max="12" step="0.5" value="${eq.preamp}">
+              <span data-eq-preamp-db>${eq.preamp > 0 ? '+' : ''}${eq.preamp} dB</span></label>
+          </div>
+          <label class="sw"><input type="checkbox" data-pref-eq="limiter" ${eq.limiter ? 'checked' : ''}>
+            <span>Limiter <em>stops boosted bands from clipping</em></span></label>
+        </div>
+      </section>
+
+      <section>
+        <h4>${icon('settings')} Behaviour</h4>
+        ${PREFS.map(p => `
+          <label class="sw"><input type="checkbox" data-pref="${p.key}" ${prefOn(p.key) ? 'checked' : ''}>
+            <span>${esc(p.label)}${p.hint ? ` <em>${esc(p.hint)}</em>` : ''}</span></label>`).join('')}
+      </section>
+
+      <section>
+        <h4>${icon('library')} Track list columns</h4>
+        <div class="checks">${OPTIONAL_COLUMNS.map(c => `
+          <label><input type="checkbox" data-col="${c.key}"
+            ${state.columns.includes(c.key) ? 'checked' : ''}> ${esc(c.label)}</label>`).join('')}
+        </div>
+        <div class="hint" style="margin-top:6px">Number and Title always stay. A hidden
+        tag is still read and still searchable, and the Details panel keeps showing
+        everything for the selected track.</div>
+      </section>
+
+      <section>
+        <h4>${icon('star')} Appearance</h4>
+        <label class="pick">Theme
+          <select data-theme-pick>
+            ${themes.map(([v, n]) =>
+              `<option value="${v}" ${v === theme ? 'selected' : ''}>${n}</option>`).join('')}
+          </select></label>
+        <label class="pick">Accent
+          <select data-accent-pick>
+            ${ACCENTS.map(([n]) => `<option value="${esc(n)}"
+              ${n === ((state.info.settings || {}).accent || 'Deep Blue') ? 'selected' : ''}>${esc(n)}</option>`).join('')}
+          </select></label>
+        <div class="swatches" style="margin-top:8px">${ACCENTS.map(([name, ramp]) => {
+          const stops = ramp.split(',');
+          return `<button class="swatch ${name === ((state.info.settings || {}).accent || 'Deep Blue') ? 'on' : ''}"
+            data-accent="${esc(name)}" title="${esc(name)}"
+            style="background:linear-gradient(135deg,${stops[3]},${stops[5]})"></button>`;
+        }).join('')}</div>
+      </section>
+
+      <section>
+        <h4>${icon('download')} Updates</h4>
+        <div class="updbox" id="updbox">${updateHtml(update)}</div>
+      </section>
+    </div>`;
+}
+
+function updateHtml(update) {
+  if (update.checking) return `<div class="hint">Checking GitHub…</div>`;
+  if (update.error) return `<div class="hint" style="color:var(--err)">${esc(update.error)}</div>
+    <button class="btn quiet" data-act="check-update">Try again</button>`;
+  if (!update.checked) {
+    return `<div class="hint">Running version ${esc(state.info.version)}.</div>
+      <button class="btn quiet" data-act="check-update">Check now</button>`;
+  }
+  if (!update.available) {
+    return `<div class="hint">${icon('check')} Version ${esc(state.info.version)} is the latest.</div>
+      <button class="btn quiet" data-act="check-update">Check again</button>`;
+  }
+  return `<div class="hint"><b>Version ${esc(update.latest)}</b> is available
+      (you have ${esc(state.info.version)}).</div>
+    ${update.notes ? `<div class="relnotes">${esc(update.notes).slice(0, 400)}</div>` : ''}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      ${update.frozen && update.asset
+        ? `<button class="btn" data-act="install-update">Download and install</button>` : ''}
+      <a class="btn quiet" href="${esc(update.url)}" target="_blank" rel="noreferrer noopener">
+        Open release page</a>
+    </div>
+    ${update.frozen && update.asset
+      ? `<div class="hint" style="margin-top:8px">Installs beside the running program and keeps
+         the current version as <code>Cadence-previous.exe</code>.</div>` : ''}`;
+}
+
+function openPrefs() {
+  showModal('Preferences', prefsHtml(),
+    `<span class="note">Cadence ${esc(state.info.version)}</span>
+     <button class="btn quiet" data-act="all-settings">All settings…</button>
+     <button class="btn" data-act="modal-close">Done</button>`);
+  $('#modal').classList.add('wide');
+  if (prefOn('updates')) checkUpdate(true);
+}
+
+async function checkUpdate(quiet) {
+  state.update = Object.assign({}, state.update, { checking: true });
+  const box = $('#updbox');
+  if (box) box.innerHTML = updateHtml(state.update);
+  try {
+    const result = await api('/api/update/check' + (quiet ? '?cached=1' : ''));
+    state.update = Object.assign({ checked: true, checking: false }, result);
+  } catch (err) {
+    state.update = { checking: false, error: err.message };
+  }
+  const after = $('#updbox');
+  if (after) after.innerHTML = updateHtml(state.update);
+  const chip = $('#st-update');
+  if (chip) {
+    chip.hidden = !state.update.available;
+    if (state.update.available) $('#st-update-label').textContent = 'Update ' + state.update.latest;
+  }
+}
+"""
+
+
 UI_SCRIPT_WIRE = r"""
 /* ---------- actions ---------- */
 function setView(view) {
   state.view = view;
   $$('.act').forEach(b => b.classList.toggle('on', b.dataset.view === view));
+  if (view === 'settings') { openPrefs(); return; }   // the cog is a popup now
   $('#side').classList.remove('hidden');
-  if (view === 'settings') openSettingsTab();
   renderSide();
 }
 function toggleSide() { $('#side').classList.toggle('hidden'); }
+const THEMES = ['dark', 'light', 'solarized-dark', 'solarized-light'];
+const THEME_NAMES = { 'dark': 'Dark', 'light': 'Light',
+                      'solarized-dark': 'Solarized Dark', 'solarized-light': 'Solarized Light' };
 function toggleTheme() {
-  const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
-  applyTheme(next); saveSetting('theme', next);
+  const current = document.documentElement.dataset.theme || 'dark';
+  setTheme(THEMES[(THEMES.indexOf(current) + 1) % THEMES.length]);
+}
+function setTheme(theme) {
+  applyTheme(theme); saveSetting('theme', theme);
   if (currentTab() && currentTab().id === 'settings') openSettingsTab();
 }
 function applyTheme(theme) {
+  if (!THEMES.includes(theme)) theme = 'dark';
   document.documentElement.dataset.theme = theme;
-  $('#st-theme-label').textContent = theme === 'light' ? 'Light' : 'Dark';
+  $('#st-theme-label').textContent = THEME_NAMES[theme];
 }
 function applyAccent(name) {
   const entry = ACCENTS.find(a => a[0] === name) || ACCENTS[0];
@@ -3125,7 +3716,7 @@ function watchScan() {
 
 /* ---------- modals ---------- */
 function closeModal() {
-  $('#modal').classList.remove('on'); $('#scrim').classList.remove('on');
+  $('#modal').classList.remove('on', 'wide'); $('#scrim').classList.remove('on');
 }
 function showModal(title, bodyHtml, footHtml) {
   $('#modal-title').textContent = title;
@@ -3251,7 +3842,8 @@ const MENUS = {
     { label: 'Queue', key: 'Ctrl+Shift+Q', act: () => setView('queue') },
     '-',
     { label: 'Toggle Theme', act: () => toggleTheme() },
-    { label: 'Settings', act: () => openSettingsTab() },
+    { label: 'Preferences…', act: () => openPrefs() },
+    { label: 'All Settings', act: () => openSettingsTab() },
   ],
   play: [
     { label: 'Play / Pause', key: 'Space', act: () => togglePlay() },
@@ -3358,6 +3950,9 @@ function wire() {
       else if (name === 'open-all') openTab(SOURCES.all());
       else if (name === 'settings-tab') openSettingsTab();
       else if (name === 'clear-queue') { player.queue = []; player.order = []; stop(); renderSide(); }
+      else if (name === 'all-settings') { closeModal(); openSettingsTab(); }
+      else if (name === 'check-update') checkUpdate(false);
+      else if (name === 'install-update') installUpdate();
       return;
     }
 
@@ -3429,9 +4024,102 @@ function wire() {
     }
   });
 
+  document.addEventListener('input', e => {
+    const band = e.target.closest('[data-eq-band]');
+    if (band) {
+      const i = +band.dataset.eqBand;
+      eq.gains[i] = parseFloat(band.value);
+      const label = $(`[data-eq-db="${i}"]`);
+      if (label) label.textContent = (eq.gains[i] > 0 ? '+' : '') + eq.gains[i];
+      const preset = $('[data-eq-preset]');
+      if (preset) preset.value = '';
+      eqApply(); eqSave();
+      return;
+    }
+    const pre = e.target.closest('[data-eq-preamp]');
+    if (pre) {
+      eq.preamp = parseFloat(pre.value);
+      const label = $('[data-eq-preamp-db]');
+      if (label) label.textContent = (eq.preamp > 0 ? '+' : '') + eq.preamp + ' dB';
+      eqApply(); eqSave();
+    }
+  });
+
+  document.addEventListener('change', e => {
+    const eqBox = e.target.closest('[data-pref-eq]');
+    if (eqBox) {
+      const which = eqBox.dataset.prefEq;
+      if (which === 'on') {
+        eq.on = eqBox.checked;
+        if (eq.on && !eqBuild()) { eq.on = false; eqBox.checked = false; }
+        const panel = $('.eq');
+        if (panel) panel.classList.toggle('off', !eq.on);
+      } else {
+        eq.limiter = eqBox.checked;
+        if (eq.limiter) eqBuild();
+      }
+      eqApply(); eqSave();
+      return;
+    }
+    const preset = e.target.closest('[data-eq-preset]');
+    if (preset) {
+      const chosen = EQ_PRESETS[preset.value];
+      if (chosen) {
+        eq.gains = chosen.slice();
+        eq.gains.forEach((g, i) => {
+          const slider = $(`[data-eq-band="${i}"]`);
+          if (slider) slider.value = g;
+          const label = $(`[data-eq-db="${i}"]`);
+          if (label) label.textContent = (g > 0 ? '+' : '') + g;
+        });
+        eqApply(); eqSave();
+      }
+      return;
+    }
+    const pref = e.target.closest('[data-pref]');
+    if (pref) { setPref(pref.dataset.pref, pref.checked); return; }
+    const themePick = e.target.closest('[data-theme-pick]');
+    if (themePick) { setTheme(themePick.value); return; }
+    const accentPick = e.target.closest('[data-accent-pick]');
+    if (accentPick) {
+      applyAccent(accentPick.value);
+      saveSetting('accent', accentPick.value);
+      state.info.settings = Object.assign({}, state.info.settings, { accent: accentPick.value });
+      $$('.swatch').forEach(s => s.classList.toggle('on', s.dataset.accent === accentPick.value));
+      return;
+    }
+    const box = e.target.closest('[data-col]');
+    if (!box) return;
+    setColumn(box.dataset.col, box.checked);
+    // The same tick appears in the popup and the settings tab; mirror it to
+    // whichever copy the user is not currently looking at.
+    $$(`[data-col="${box.dataset.col}"]`).forEach(other => { other.checked = box.checked; });
+    // The box the user just clicked already shows the right state, so redrawing
+    // the page would only throw away their scroll position and detach the other
+    // boxes mid-interaction. Refresh the cached markup instead; track list tabs
+    // rebuild their columns when they are next shown.
+    const tab = state.tabs.find(t => t.id === 'settings');
+    if (tab) tab.html = settingsTabHtml();
+  });
+
+  $('#win-close').addEventListener('click', quitApp);
+  $('#win-max').addEventListener('click', () => {
+    const root = document.documentElement;
+    if (root.requestFullscreen) root.requestFullscreen().catch(() => {});
+    syncWindowControls();
+  });
+  $('#win-restore').addEventListener('click', () => {
+    if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+    syncWindowControls();
+  });
+  document.addEventListener('fullscreenchange', syncWindowControls);
+  syncWindowControls();
+
   $('#command-center').addEventListener('click', () => openQuick('file'));
   $('#scrim').addEventListener('click', () => { closeQuick(); closeModal(); });
   $('#st-theme').addEventListener('click', toggleTheme);
+  $('#st-update').addEventListener('click', openPrefs);
+  $('#activity .act[data-view="settings"]').title = 'Preferences';
   $('#st-play').addEventListener('click', togglePlay);
   $('#st-count').addEventListener('click', () => openTab(SOURCES.all()));
   $('#st-now').addEventListener('click', () => { setView('queue'); togglePanel(true); });
@@ -3468,6 +4156,9 @@ function wire() {
     }
     paintRows(); updateStatus();
     if ($('#panel').classList.contains('open') && panelTab === 'details') renderPanel();
+    if (prefOn('singleclick') && e.button === 0 && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+      playQueue(state.rows.map(t => t.id), index);
+    }
   });
   wrap.addEventListener('dblclick', e => {
     const row = e.target.closest('.trk');
@@ -3704,6 +4395,44 @@ function wire() {
   addEventListener('contextmenu', e => { if (!e.target.closest('.trk, [data-ctx]')) e.preventDefault(); });
 }
 
+function syncWindowControls() {
+  // A web page cannot minimise its own window, so the amber control is a
+  // restore-down: it leaves full screen, and greys out when there is none.
+  const full = !!document.fullscreenElement;
+  $('#win-restore').disabled = !full;
+  $('#win-max').disabled = full;
+}
+
+async function installUpdate() {
+  const update = state.update || {};
+  if (!update.available || !update.asset) return;
+  showModal('Install update',
+    `<p>Download <b>Cadence ${esc(update.latest)}</b> and restart?</p>
+     <div class="hint" style="margin-top:10px;line-height:1.8">
+       The new build is written beside the running program. Your current version is kept
+       as <code>Cadence-previous.exe</code>, so you can rename it back if anything is wrong.
+       Cadence closes and reopens itself to finish.<br><br>
+       Your library index, playlists and settings are untouched.</div>`,
+    `<button class="btn quiet" data-act="modal-close">Cancel</button>
+     <button class="btn" id="do-install">Download and install</button>`);
+  $('#do-install').addEventListener('click', async () => {
+    $('#do-install').textContent = 'Downloading…';
+    $('#do-install').disabled = true;
+    try {
+      const result = await api('/api/update/install', { body: {} });
+      showModal('Restarting',
+        `<p>Downloaded ${esc(result.size_mb)} MB. Cadence is restarting into
+         version ${esc(update.latest)}.</p>
+         <div class="hint" style="margin-top:10px">If the window does not come back on its
+         own, start Cadence again from where you keep it.</div>`, '');
+      setTimeout(() => { try { window.close(); } catch {} }, 2500);
+    } catch (err) {
+      closeModal();
+      toast('Update failed: ' + err.message, 'err');
+    }
+  });
+}
+
 async function removeFromPlaylist(playlistId, ids) {
   await api('/api/playlist/remove', { body: { id: playlistId, tracks: ids } });
   await refreshPlaylists();
@@ -3731,6 +4460,17 @@ async function boot() {
   const settings = state.info.settings || {};
   applyTheme(settings.theme || 'dark');
   applyAccent(settings.accent || 'Deep Blue');
+  // An empty string is a real choice (every optional column off), so only an
+  // absent setting falls back to the defaults.
+  state.columns = settings.columns === undefined
+    ? DEFAULT_COLUMNS.slice()
+    : settings.columns.split(',').filter(Boolean);
+  state.prefs = {};
+  for (const [key, value] of Object.entries(settings)) {
+    if (key.startsWith('pref_')) state.prefs[key.slice(5)] = value;
+  }
+  applyPrefs();
+  eqLoad(settings.eq);
   if (settings.sidebar_width) $('#side').style.width = settings.sidebar_width + 'px';
   if (settings.panel_height) $('#panel').style.height = settings.panel_height + 'px';
   player.volume = settings.volume ? parseFloat(settings.volume) : 0.8;
@@ -3745,6 +4485,7 @@ async function boot() {
 
   renderNowPlaying();
   if (state.info.scanning) watchScan();
+  if (prefOn('updates')) setTimeout(() => checkUpdate(true), 2500);
   out(`${state.info.app} ${state.info.version} ready · ${state.info.stats.tracks} tracks indexed`);
 }
 boot();
@@ -3758,11 +4499,14 @@ def render_page(token: str) -> str:
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n"
         "<meta name=\"color-scheme\" content=\"dark light\">\n"
         f"<title>{APP_NAME}</title>\n"
-        f"<link rel=\"icon\" href=\"{icon_data_uri()}\">\n"
+        "<link rel=\"icon\" href=\"/favicon.ico\" sizes=\"16x16 32x32 48x48 256x256\">\n"
+        "<link rel=\"icon\" type=\"image/png\" sizes=\"256x256\" href=\"/icon.png\">\n"
+        "<link rel=\"apple-touch-icon\" href=\"/icon.png?size=180\">\n"
+        "<link rel=\"icon\" type=\"image/svg+xml\" href=\"/icon.svg\">\n"
         + UI_STYLE + "\n</head>\n<body>\n" + UI_BODY
         + "<script>window.CADENCE_TOKEN=" + json.dumps(token) + ";</script>\n"
         + "<script>\n" + UI_SCRIPT_CORE + UI_SCRIPT_VIEWS + UI_SCRIPT_PLAYER
-        + UI_SCRIPT_WIRE + "\n</script>\n</body>\n</html>\n"
+        + UI_SCRIPT_PREFS + UI_SCRIPT_WIRE + "\n</script>\n</body>\n</html>\n"
     )
 
 
@@ -3890,9 +4634,12 @@ def main(argv: list[str] | None = None) -> int:
 
     # The designated folder is pulled in on every launch, in the background so
     # the window opens immediately and fills in as tracks are found.
-    if folder and not args.no_scan:
+    scan_on_launch = library.get_setting("pref_scanlaunch", "1") != "0"
+    if folder and not args.no_scan and (scan_on_launch or args.rescan):
         log("scanning", folder)
         library.scan_async(folder, full=args.rescan)
+    elif folder and not scan_on_launch:
+        log("launch scan is switched off in preferences")
     elif not folder:
         log("no music folder designated yet - pick one in the window")
 
