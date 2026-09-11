@@ -1,2 +1,6 @@
 # Ai-Slop-that-Claude-Makes
-the name is self explanatory (mostly in C)
+
+
+So contained in these subfolders is anything that i've slaved claude into making.
+Unfortunately for you I will not maintain anything unless asked so ALL projects will die eventually. 
+If you want to modify them just make the request and ill have a look <3
