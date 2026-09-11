@@ -4,6 +4,13 @@ on:
   # workflow_dispatch only appears in the Actions UI once this file is on the
   # default branch, so pushes to the working branches trigger a build as well.
   workflow_dispatch:
+    inputs:
+      republish:
+        description: >-
+          Delete and re-publish the release for the version currently in
+          Cadence.py. Leave off to only build and check.
+        type: boolean
+        default: false
   push:
     branches:
       - 'main'
@@ -78,7 +85,7 @@ jobs:
           Write-Host "Cadence reports version $v -> release tag $tag"
 
       - name: Clear a stale release for this tag
-        if: contains(github.event.head_commit.message, '[release]')
+        if: contains(github.event.head_commit.message, '[release]') || inputs.republish
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -99,6 +106,7 @@ jobs:
 
       - name: Compose release notes from the changelog
         if: github.ref_type == 'tag' || contains(github.event.head_commit.message, '[release]')
+          || inputs.republish
         shell: python
         env:
           REPO: ${{ github.repository }}
@@ -197,6 +205,7 @@ jobs:
 
       - name: Publish the release
         if: github.ref_type == 'tag' || contains(github.event.head_commit.message, '[release]')
+          || inputs.republish
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
@@ -209,6 +218,7 @@ jobs:
 
       - name: Re-link the earlier releases
         if: github.ref_type == 'tag' || contains(github.event.head_commit.message, '[release]')
+          || inputs.republish
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
