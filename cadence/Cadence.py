@@ -41,7 +41,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 APP_NAME = "Cadence"
-APP_VERSION = "1.1.3"
+APP_VERSION = "1.1.4"
 DEFAULT_PORT = 8731
 
 # Extensions we will index. The ones we can actually parse tags for are listed
@@ -51,6 +51,10 @@ AUDIO_EXTS = {
     ".aac", ".alac", ".wav", ".wave", ".aif", ".aiff", ".aifc", ".wma",
     ".ape", ".wv", ".mpc", ".mp2", ".dsf", ".it", ".mod", ".xm", ".s3m",
 }
+
+# Containers that can hold pictures as well as sound, so the extension alone
+# cannot decide and the file has to be looked inside.
+AMBIGUOUS_EXTS = {".mp4", ".ogg"}
 
 SKIP_DIRS = {
     ".git", ".svn", ".hg", "__pycache__", "node_modules", "$RECYCLE.BIN",
@@ -534,6 +538,8 @@ def read_ogg(fh: io.BufferedReader, size: int) -> dict:
     packets = _ogg_packets(fh)
     if not packets:
         return {}
+    if any(p.startswith(b"\x80theora") for p in packets):
+        return {"video": True}
     head = packets[0]
     tags: dict = {}
     samplerate = 0
@@ -554,6 +560,8 @@ def read_ogg(fh: io.BufferedReader, size: int) -> dict:
             if packet.startswith(b"OpusTags"):
                 tags.update(_parse_vorbis_comment(packet[8:]))
                 break
+    elif head.startswith(b"\x80theora") or head.startswith(b"\x80video"):
+        return {"video": True}
     elif head.startswith(b"Speex   "):
         tags["codec"] = "Speex"
         samplerate = struct.unpack("<I", head[36:40])[0]
@@ -571,6 +579,10 @@ def read_ogg(fh: io.BufferedReader, size: int) -> dict:
 _MP4_CONTAINERS = {b"moov", b"udta", b"trak", b"mdia", b"minf", b"stbl", b"meta", b"ilst"}
 _MP4_CODECS = {b"mp4a": "AAC", b"alac": "ALAC", b"ac-3": "AC3", b"ec-3": "EAC3",
                b"samr": "AMR", b".mp3": "MP3", b"lpcm": "PCM"}
+# .mp4 is a container, not a format: it holds music videos as readily as albums.
+# A sample entry in this set, or a track whose handler is "vide", means pictures.
+_MP4_VIDEO_CODECS = {b"avc1", b"avc3", b"hvc1", b"hev1", b"mp4v", b"av01", b"vp08",
+                     b"vp09", b"s263", b"encv", b"dvh1", b"dvhe", b"jpeg", b"mjpa"}
 _MP4_KEYS = {
     b"\xa9nam": "title", b"\xa9ART": "artist", b"aART": "albumartist",
     b"\xa9alb": "album", b"\xa9day": "year", b"\xa9gen": "genre",
@@ -600,13 +612,23 @@ def _mp4_walk(fh: io.BufferedReader, end: int, tags: dict, depth: int = 0) -> No
             return
         box_end = start + box_size
 
-        if box_type == b"stsd":
+        if box_type == b"hdlr":
+            payload = fh.read(min(box_size - 8, 24))
+            if len(payload) >= 12 and payload[8:12] == b"vide":
+                tags["video"] = True
+        elif box_type == b"stsd":
             entry = fh.read(min(box_size - 8, 96))
             try:
                 fmt = entry[12:16]
-                tags["codec"] = _MP4_CODECS.get(fmt, fmt.decode("latin-1", "replace").strip())
-                tags["channels"] = struct.unpack(">H", entry[32:34])[0]
-                tags["samplerate"] = struct.unpack(">H", entry[40:42])[0]
+                if fmt in _MP4_VIDEO_CODECS:
+                    tags["video"] = True
+                else:
+                    # Only an audio sample entry has channels and rate at these
+                    # offsets; reading them off a video one yields nonsense.
+                    tags["codec"] = _MP4_CODECS.get(
+                        fmt, fmt.decode("latin-1", "replace").strip())
+                    tags["channels"] = struct.unpack(">H", entry[32:34])[0]
+                    tags["samplerate"] = struct.unpack(">H", entry[40:42])[0]
             except Exception:
                 pass
         elif box_type == b"mdhd":
@@ -677,6 +699,8 @@ def read_mp4(fh: io.BufferedReader, size: int) -> dict:
     fh.seek(0)
     tags: dict = {"codec": "AAC"}
     _mp4_walk(fh, size, tags)
+    if tags.get("video"):
+        return {"video": True}
     if tags.get("duration"):
         tags.setdefault("bitrate", int(size * 8 / tags["duration"]))
     return tags
@@ -807,6 +831,9 @@ def read_metadata(path: str, root: str | None = None) -> dict:
         except Exception as exc:
             log("tag read failed", os.path.basename(path), repr(exc))
 
+    if tags.get("video"):
+        return {"video": True}
+
     art = tags.pop("_art", None)
     stem = os.path.splitext(os.path.basename(path))[0]
 
@@ -892,6 +919,14 @@ CREATE TABLE IF NOT EXISTS playlist_items (
     position    INTEGER NOT NULL,
     PRIMARY KEY (playlist_id, track_id)
 );
+-- Files we looked inside and decided against, so a rescan does not open every
+-- video in the folder again just to reach the same conclusion.
+CREATE TABLE IF NOT EXISTS skipped (
+    path   TEXT PRIMARY KEY,
+    size   INTEGER NOT NULL,
+    mtime  REAL NOT NULL,
+    reason TEXT
+);
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT
@@ -956,13 +991,33 @@ class Library:
                 if os.path.splitext(name)[1].lower() in AUDIO_EXTS:
                     yield os.path.join(dirpath, name)
 
+    def recheck_ambiguous_once(self) -> int:
+        """Force a re-read of container formats indexed before video was filtered.
+
+        The incremental scan skips a file whose size and timestamp are unchanged,
+        so a video an earlier build accepted would never be looked at again.
+        Dropping those rows once makes the next scan re-read them, after which
+        the usual incremental path applies.
+        """
+        if self.get_setting("video_filter") == "1":
+            return 0
+        conn = self.connect()
+        stale = [row["path"] for row in conn.execute("SELECT path FROM tracks")
+                 if os.path.splitext(row["path"])[1].lower() in AMBIGUOUS_EXTS]
+        if stale:
+            with self._write_lock:
+                conn.executemany("DELETE FROM tracks WHERE path=?", [(p,) for p in stale])
+                conn.commit()
+        self.set_setting("video_filter", "1")
+        return len(stale)
+
     def scan(self, root: str, full: bool = False) -> dict:
         """Index `root`. Incremental unless `full`, and safe to call repeatedly."""
         state = self.scan_state
         if state["running"]:
             return state
         state.update({"running": True, "found": 0, "added": 0, "updated": 0,
-                      "removed": 0, "errors": 0, "current": "", "log": [],
+                      "removed": 0, "errors": 0, "skipped": 0, "current": "", "log": [],
                       "started": time.time(), "finished": 0.0})
         conn = self.connect()
         try:
@@ -972,9 +1027,16 @@ class Library:
                 return state
 
             self._note(f"Scanning {root}")
+            rechecked = self.recheck_ambiguous_once()
+            if rechecked:
+                self._note(f"Re-reading {rechecked} container file(s) to check for video")
             known = {row["path"]: (row["size"], row["mtime"], row["id"])
                      for row in conn.execute("SELECT id, path, size, mtime FROM tracks")}
+            known_skips = {row["path"]: (row["size"], row["mtime"])
+                           for row in conn.execute("SELECT path, size, mtime FROM skipped")}
             seen: set[str] = set()
+            seen_skips: set[str] = set()
+            new_skips: list[tuple] = []
             batch: list[tuple] = []
             started = time.time()
 
@@ -991,11 +1053,25 @@ class Library:
                 if previous and not full and previous[0] == stat.st_size and \
                         abs(previous[1] - stat.st_mtime) < 1e-6:
                     continue
+                was_skipped = known_skips.get(path)
+                if was_skipped and not full and was_skipped[0] == stat.st_size and \
+                        abs(was_skipped[1] - stat.st_mtime) < 1e-6:
+                    seen_skips.add(path)
+                    state["skipped"] += 1
+                    continue
                 try:
                     meta = read_metadata(path, root)
                 except Exception as exc:
                     state["errors"] += 1
                     self._note(f"error: {os.path.basename(path)} - {exc}")
+                    continue
+                if meta.get("video"):
+                    # A container that turned out to hold pictures. Remember the
+                    # verdict, and drop it if an earlier scan had let it in.
+                    new_skips.append((path, stat.st_size, stat.st_mtime, "video"))
+                    seen_skips.add(path)
+                    seen.discard(path)
+                    state["skipped"] += 1
                     continue
                 art = meta.pop("art", None)
                 art_mime, art_blob = (art if art and len(art[1]) <= MAX_ART_BYTES else (None, None))
@@ -1018,6 +1094,24 @@ class Library:
             if batch:
                 self._flush(conn, batch)
 
+            if new_skips:
+                with self._write_lock:
+                    conn.executemany(
+                        "INSERT INTO skipped(path, size, mtime, reason) VALUES(?,?,?,?) "
+                        "ON CONFLICT(path) DO UPDATE SET size=excluded.size, "
+                        "mtime=excluded.mtime, reason=excluded.reason", new_skips)
+                    conn.executemany("DELETE FROM tracks WHERE path=?",
+                                     [(entry[0],) for entry in new_skips])
+                    conn.commit()
+
+            stale_skips = [path for path in known_skips
+                           if path not in seen_skips and path.startswith(root)]
+            if stale_skips:
+                with self._write_lock:
+                    conn.executemany("DELETE FROM skipped WHERE path=?",
+                                     [(p,) for p in stale_skips])
+                    conn.commit()
+
             gone = [path for path in known if path not in seen and path.startswith(root)]
             if gone:
                 with self._write_lock:
@@ -1028,7 +1122,8 @@ class Library:
             elapsed = time.time() - started
             self._note(f"Done in {elapsed:.1f}s - {state['found']} files, "
                        f"{state['added']} added, {state['updated']} updated, "
-                       f"{state['removed']} removed, {state['errors']} errors")
+                       f"{state['removed']} removed, {state['skipped']} video skipped, "
+                       f"{state['errors']} errors")
             self.set_setting("last_scan", str(time.time()))
         finally:
             state["current"] = ""
@@ -2345,8 +2440,16 @@ label.pick select:focus,.eqfoot select:focus{border-color:var(--a400)}
 .eqrow{display:flex;gap:2px;justify-content:space-between;padding:8px 2px 4px;
   background:var(--bg-editor);border:1px solid var(--border-soft);border-radius:4px}
 .band{display:flex;flex-direction:column;align-items:center;gap:3px;flex:1;min-width:0}
-.band input[type=range]{-webkit-appearance:slider-vertical;appearance:slider-vertical;
-  writing-mode:vertical-lr;direction:rtl;width:18px;height:96px;accent-color:var(--a400);cursor:ns-resize}
+.fader{position:relative;width:18px;height:96px;cursor:ns-resize;touch-action:none;
+  flex:0 0 auto;outline:none}
+.fader::before{content:"";position:absolute;left:50%;top:0;bottom:0;width:4px;margin-left:-2px;
+  background:var(--bg-input);border-radius:2px}
+.fader .fill{position:absolute;left:50%;width:4px;margin-left:-2px;background:var(--a400);
+  border-radius:2px}
+.fader .knob{position:absolute;left:50%;width:14px;height:8px;margin-left:-7px;border-radius:2px;
+  background:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.45);pointer-events:none}
+.fader:hover .knob{background:var(--fg-strong)}
+.fader:focus-visible{outline:1px solid var(--a400);outline-offset:2px;border-radius:3px}
 .band .db{font-family:var(--mono);font-size:10px;color:var(--fg)}
 .band .hz{font-family:var(--mono);font-size:9px;color:var(--fg-faint)}
 .eqfoot{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:9px;font-size:12px}
@@ -3536,6 +3639,47 @@ function eqLoad(raw) {
 
 const hz = f => f >= 1000 ? (f / 1000) + 'k' : String(f);
 
+// Drawn rather than a native vertical <input type=range>: those depend on
+// browser-specific behaviour that has changed more than once, and where it is
+// missing the control collapses to an unusably narrow horizontal slider. This
+// behaves the same everywhere, and takes the keyboard too.
+const EQ_RANGE = 12;
+
+function faderValue(element, clientY) {
+  const rect = element.getBoundingClientRect();
+  const ratio = 1 - (clientY - rect.top) / rect.height;   // top of the track is the boost end
+  const value = (ratio * 2 - 1) * EQ_RANGE;
+  return Math.max(-EQ_RANGE, Math.min(EQ_RANGE, Math.round(value * 2) / 2));
+}
+
+function drawFader(element, value) {
+  const fromTop = (1 - (value + EQ_RANGE) / (EQ_RANGE * 2)) * 100;
+  element.querySelector('.knob').style.top = `calc(${fromTop}% - 4px)`;
+  const fill = element.querySelector('.fill');
+  // Fill from the midpoint towards the knob, so a cut reads as clearly as a boost.
+  fill.style.top = Math.min(50, fromTop) + '%';
+  fill.style.height = Math.abs(50 - fromTop) + '%';
+  element.setAttribute('aria-valuenow', value);
+}
+
+function setBand(index, value) {
+  eq.gains[index] = Math.max(-EQ_RANGE, Math.min(EQ_RANGE, value));
+  const fader = $(`[data-eq-band="${index}"]`);
+  if (fader) drawFader(fader, eq.gains[index]);
+  const label = $(`[data-eq-db="${index}"]`);
+  if (label) label.textContent = (eq.gains[index] > 0 ? '+' : '') + eq.gains[index];
+  const preset = $('[data-eq-preset]');
+  if (preset) preset.value = '';
+  eqApply();
+}
+
+function drawAllFaders() {
+  EQ_BANDS.forEach((_, i) => {
+    const fader = $(`[data-eq-band="${i}"]`);
+    if (fader) drawFader(fader, eq.gains[i]);
+  });
+}
+
 /* ---------- preferences popup ---------- */
 function prefsHtml() {
   const theme = document.documentElement.dataset.theme || 'dark';
@@ -3551,8 +3695,11 @@ function prefsHtml() {
           <div class="eqrow">
             ${EQ_BANDS.map((f, i) => `
               <div class="band">
-                <input type="range" data-eq-band="${i}" min="-12" max="12" step="0.5"
-                  value="${eq.gains[i]}" orient="vertical" aria-label="${hz(f)} hertz">
+                <div class="fader" data-eq-band="${i}" tabindex="0" role="slider"
+                     aria-label="${hz(f)} hertz" aria-valuemin="-12" aria-valuemax="12"
+                     aria-valuenow="${eq.gains[i]}">
+                  <div class="fill"></div><div class="knob"></div>
+                </div>
                 <span class="db" data-eq-db="${i}">${eq.gains[i] > 0 ? '+' : ''}${eq.gains[i]}</span>
                 <span class="hz">${hz(f)}</span>
               </div>`).join('')}
@@ -3649,6 +3796,7 @@ function openPrefs() {
      <button class="btn quiet" data-act="all-settings">All settings…</button>
      <button class="btn" data-act="modal-close">Done</button>`);
   $('#modal').classList.add('wide');
+  drawAllFaders();
   if (prefOn('updates')) checkUpdate(true);
 }
 
@@ -4116,18 +4264,43 @@ function wire() {
     }
   });
 
+  document.addEventListener('pointerdown', e => {
+    const fader = e.target.closest('[data-eq-band]');
+    if (!fader) return;
+    e.preventDefault();
+    fader.focus();
+    const index = +fader.dataset.eqBand;
+    const track = value => setBand(index, value);
+    track(faderValue(fader, e.clientY));
+    fader.setPointerCapture(e.pointerId);
+    const move = ev => track(faderValue(fader, ev.clientY));
+    const up = () => {
+      fader.removeEventListener('pointermove', move);
+      fader.removeEventListener('pointerup', up);
+      fader.removeEventListener('pointercancel', up);
+      eqSave();
+    };
+    fader.addEventListener('pointermove', move);
+    fader.addEventListener('pointerup', up);
+    fader.addEventListener('pointercancel', up);
+  });
+
+  document.addEventListener('keydown', e => {
+    const fader = e.target.closest && e.target.closest('[data-eq-band]');
+    if (!fader) return;
+    const index = +fader.dataset.eqBand;
+    const step = e.shiftKey ? 0.5 : 1;
+    const moves = { ArrowUp: step, ArrowDown: -step, PageUp: 3, PageDown: -3 };
+    if (e.key in moves) { setBand(index, eq.gains[index] + moves[e.key]); }
+    else if (e.key === 'Home') { setBand(index, EQ_RANGE); }
+    else if (e.key === 'End') { setBand(index, -EQ_RANGE); }
+    else if (e.key === '0') { setBand(index, 0); }
+    else return;
+    e.preventDefault(); e.stopPropagation();
+    eqSave();
+  }, true);
+
   document.addEventListener('input', e => {
-    const band = e.target.closest('[data-eq-band]');
-    if (band) {
-      const i = +band.dataset.eqBand;
-      eq.gains[i] = parseFloat(band.value);
-      const label = $(`[data-eq-db="${i}"]`);
-      if (label) label.textContent = (eq.gains[i] > 0 ? '+' : '') + eq.gains[i];
-      const preset = $('[data-eq-preset]');
-      if (preset) preset.value = '';
-      eqApply(); eqSave();
-      return;
-    }
     const pre = e.target.closest('[data-eq-preamp]');
     if (pre) {
       eq.preamp = parseFloat(pre.value);
@@ -4157,14 +4330,9 @@ function wire() {
     if (preset) {
       const chosen = EQ_PRESETS[preset.value];
       if (chosen) {
-        eq.gains = chosen.slice();
-        eq.gains.forEach((g, i) => {
-          const slider = $(`[data-eq-band="${i}"]`);
-          if (slider) slider.value = g;
-          const label = $(`[data-eq-db="${i}"]`);
-          if (label) label.textContent = (g > 0 ? '+' : '') + g;
-        });
-        eqApply(); eqSave();
+        chosen.forEach((g, i) => setBand(i, g));
+        preset.value = preset.value;   // setBand clears it; this is a deliberate choice
+        eqSave();
       }
       return;
     }

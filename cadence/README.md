@@ -94,6 +94,12 @@ Anything else with an audio extension is still indexed using its filename.
 Files with no usable tags fall back to `Artist - Title` filename parsing and the
 `Artist/Album/track` folder convention.
 
+**Video is left out.** `.mp4` and `.ogg` are containers that can hold either
+sound or pictures, so Cadence looks inside instead of trusting the extension: a
+file with a video track is skipped, while an audio-only `.mp4` is indexed
+normally. Skipped files are remembered, so a rescan does not reopen every video
+in the folder.
+
 *Playback* is done by the browser's own audio engine. That covers MP3, WAV, FLAC,
 M4A/AAC, Ogg and Opus on Chrome and Edge. Formats the engine cannot decode still
 appear in the library with full metadata — they just will not play.

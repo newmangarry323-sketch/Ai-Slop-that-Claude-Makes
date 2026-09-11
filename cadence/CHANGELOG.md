@@ -4,6 +4,24 @@ Every release of Cadence, newest first. The version here is the value of
 `APP_VERSION` in `Cadence.py`, and each release is tagged `cadence-v<version>`
 on the commit that produced its executable.
 
+## 1.1.4
+
+- **Video files are no longer indexed.** `.mp4` is a container, not a format —
+  it holds music videos as readily as albums — so Cadence was picking up video
+  from folders like Downloads. It now looks inside rather than trusting the
+  extension: a file with a video track is left out, while an audio-only `.mp4`
+  is still indexed as before. The same check covers Ogg carrying Theora.
+  Anything already in your library from an earlier build is re-read once and
+  dropped if it turns out to be video, and the verdict is remembered so a
+  rescan does not reopen every video in the folder.
+- **Fixed: the equalizer could not be adjusted on some browsers.** The faders
+  were native vertical sliders, which depend on browser behaviour that has
+  changed more than once and does not exist at all in some browsers — where it
+  is missing the control collapses to an unusably narrow horizontal slider.
+  They are drawn by Cadence now, so they behave the same everywhere, and they
+  take the keyboard: arrows adjust, Page Up and Page Down move in threes, Home
+  and End go to the extremes, and 0 returns a band to flat.
+
 ## 1.1.3
 
 - **Four more themes** — Black, Nord, Gruvbox and Paper join Dark, Light and the
@@ -120,6 +138,7 @@ First release.
   draws its own icon, so `--write-icon` produces the `.ico` used to package it.
 - Windows executable built with PyInstaller by GitHub Actions.
 
+[1.1.4]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.1.4
 [1.1.3]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.1.3
 [1.1.2]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.1.2
 [1.1.1]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.1.1
