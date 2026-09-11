@@ -1,0 +1,92 @@
+# Changelog
+
+Every release of Cadence, newest first. The version here is the value of
+`APP_VERSION` in `Cadence.py`, and each release is tagged `cadence-v<version>`
+on the commit that produced its executable.
+
+## 1.1.1
+
+- The running version now shows in the status bar, so which build you are on is
+  visible at a glance instead of buried in the settings tab. Clicking it opens
+  Preferences, where the update check lives.
+
+## 1.1.0
+
+A preferences popup, an equalizer, Solarized, and update checking.
+
+- **Preferences popup.** The cog in the activity bar now opens a popup rather
+  than a settings tab. It holds the equalizer, the behaviour switches, theme
+  and accent, and the update check. The full settings tab is still there behind
+  **All settings…**, under **View**, and in the command palette.
+- **Equalizer.** Ten bands (31 Hz to 16 kHz), a preamp, seven presets, and a
+  limiter for when boosted bands would otherwise clip. Built on Web Audio
+  peaking filters. The audio graph is only created the first time the equalizer
+  is switched on, so leaving it alone leaves playback untouched.
+- **Choose which columns the track list shows.** Artist, Album, Album artist,
+  Genre, Track, Year, Format, Plays and Time can each be switched off; Number
+  and Title always stay. Hidden tags are still read, still searchable, and
+  still shown in the Details panel. Sorting falls back to the default order if
+  the column it was sorting by is hidden.
+- **Behaviour switches:** follow the playing track, single click plays, cover
+  art in the player, animate the playing indicator, compact rows, rescan on
+  launch, count plays, check for updates.
+- **Solarized Dark and Solarized Light** join Dark and Light. The status bar
+  now cycles through all four. Accent ramps are independent of the theme.
+- **Update checking.** Asks GitHub at most once a day whether a newer release
+  exists and shows a chip in the status bar when there is one. On the Windows
+  build it can download and install: the new executable is written beside the
+  running one, the current version is kept as `Cadence-previous.exe`, and
+  Cadence restarts into the new build. Nothing is downloaded without pressing
+  the button, and the check can be switched off.
+- **Window controls** sit at the left of the menu bar. Red quits Cadence and
+  stops the server; green goes full screen; amber leaves it. A web page cannot
+  minimise its own window, so amber is a restore-down rather than a minimise.
+- The app now serves a real `/favicon.ico` carrying all ten sizes, plus PNG and
+  SVG icons, so the window and taskbar have a proper icon to use. The `.ico` is
+  also packed inside the executable.
+- Fixed: the gear icon was a malformed hand-drawn path. It is now generated
+  from gear geometry — eight teeth and a hub.
+
+## 1.0.1
+
+Sharper icon at high-DPI display scaling.
+
+- The `.ico` now stores 16, 20, 24, 32, 40, 48, 64, 96, 128 and 256 px. It was
+  missing 20, 40 and 96 — the sizes the Windows shell asks for at 125%, 150%
+  and 200% scaling. Windows falls back to downsampling a larger entry when the
+  exact size is absent, which is what made the icon look soft.
+- The 64 px entry moved from a DIB to PNG, so the file is smaller at ten sizes
+  than it was at seven.
+- `--write-png` now writes 1024 px instead of 512, for uses outside Windows.
+  256 px remains the largest `.ico` entry: the format stores an entry's width
+  in a single byte.
+- The icon renderer skips pixels outside a shape's bounding box before
+  evaluating its distance field, roughly halving render time. Output is
+  unchanged — verified byte for byte against the previous renderer at every
+  stored size.
+
+## 1.0.0
+
+First release.
+
+- Indexes one designated folder and everything beneath it on every launch,
+  re-reading only files whose size or modification time changed.
+- Interface modelled on VS Code: activity bar, side bar, editor tabs,
+  breadcrumbs, a toggleable panel, command palette and quick open, and a
+  status bar in a dark blue accent. Dark and light themes, six accent ramps.
+- Tag parsing written from the format specifications, with no third-party
+  libraries: ID3v2.2/2.3/2.4 and ID3v1, FLAC, Ogg Vorbis, Opus, Speex,
+  MP4/M4A, WAV and AIFF, including embedded cover art. MP3 duration is
+  recovered from Xing, VBRI or CBR frame headers.
+- Playback with queue, shuffle and repeat. The local server answers HTTP range
+  requests, so seeking a large lossless file does not download it first.
+- Playlists with `.m3u8` export, search, sortable virtualised track list,
+  play counts, and "Reveal in File Manager".
+- The whole program is one file importing only the standard library. It also
+  draws its own icon, so `--write-icon` produces the `.ico` used to package it.
+- Windows executable built with PyInstaller by GitHub Actions.
+
+[1.1.1]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.1.1
+[1.1.0]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.1.0
+[1.0.1]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.0.1
+[1.0.0]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.0.0
