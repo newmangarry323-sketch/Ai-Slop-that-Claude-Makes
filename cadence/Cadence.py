@@ -41,7 +41,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 APP_NAME = "Cadence"
-APP_VERSION = "1.2.3"
+APP_VERSION = "1.2.4"
 DEFAULT_PORT = 8731
 
 # Extensions we will index. The ones we can actually parse tags for are listed
@@ -991,6 +991,20 @@ class Library:
                 if os.path.splitext(name)[1].lower() in AUDIO_EXTS:
                     yield os.path.join(dirpath, name)
 
+    @staticmethod
+    def under(path: str, root: str) -> bool:
+        """Is `path` inside `root`?
+
+        A plain prefix test is wrong: "D:/Music2/x.mp3" starts with "D:/Music",
+        so a sibling folder whose name merely begins the same way would be
+        treated as part of the library and its tracks deleted as missing.
+        """
+        root = os.path.normpath(root)
+        path = os.path.normpath(path)
+        if path == root:
+            return True
+        return path.startswith(root.rstrip(os.sep) + os.sep)
+
     def recheck_ambiguous_once(self) -> int:
         """Force a re-read of container formats indexed before video was filtered.
 
@@ -1105,14 +1119,14 @@ class Library:
                     conn.commit()
 
             stale_skips = [path for path in known_skips
-                           if path not in seen_skips and path.startswith(root)]
+                           if path not in seen_skips and self.under(path, root)]
             if stale_skips:
                 with self._write_lock:
                     conn.executemany("DELETE FROM skipped WHERE path=?",
                                      [(p,) for p in stale_skips])
                     conn.commit()
 
-            gone = [path for path in known if path not in seen and path.startswith(root)]
+            gone = [path for path in known if path not in seen and self.under(path, root)]
             if gone:
                 with self._write_lock:
                     conn.executemany("DELETE FROM tracks WHERE path=?", [(p,) for p in gone])
@@ -1157,6 +1171,24 @@ class Library:
         threading.Thread(target=self.scan, args=(root, full), daemon=True).start()
 
     # -- queries ------------------------------------------------------------
+
+    def forget_outside(self, root: str) -> int:
+        """Drop tracks that are not under `root`.
+
+        Only files beneath the designated folder are ever scanned, so after the
+        folder is changed the leftovers from the previous one can never be
+        refreshed or removed by a scan - they would sit in the library forever,
+        pointing at files Cadence is no longer looking at.
+        """
+        conn = self.connect()
+        stale = [row["path"] for row in conn.execute("SELECT path FROM tracks")
+                 if not self.under(row["path"], root)]
+        if stale:
+            with self._write_lock:
+                conn.executemany("DELETE FROM tracks WHERE path=?", [(p,) for p in stale])
+                conn.executemany("DELETE FROM skipped WHERE path=?", [(p,) for p in stale])
+                conn.commit()
+        return len(stale)
 
     def tracks(self) -> list[dict]:
         rows = self.connect().execute(
@@ -1702,6 +1734,17 @@ class Handler(BaseHTTPRequestHandler):
     def _error(self, status: int, message: str) -> None:
         self._json({"error": message}, status)
 
+    @staticmethod
+    def _int(value, default: int = 0) -> int:
+        """A malformed id should be a 400, not an exception that drops the socket."""
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _ids(self, values) -> list[int]:
+        return [n for n in (self._int(v, -1) for v in (values or [])) if n >= 0]
+
     def _body(self) -> dict:
         try:
             length = int(self.headers.get("Content-Length") or 0)
@@ -1786,9 +1829,13 @@ class Handler(BaseHTTPRequestHandler):
             folder = os.path.abspath(os.path.expanduser(str(payload.get("path", "")).strip()))
             if not os.path.isdir(folder):
                 return self._error(400, f"Not a folder: {folder}")
+            previous = library.get_setting("music_folder")
             library.set_setting("music_folder", folder)
+            dropped = library.forget_outside(folder) if previous and previous != folder else 0
             library.scan_async(folder, full=bool(payload.get("full")))
-            return self._json(self.state_payload())
+            payload = self.state_payload()
+            payload["dropped"] = dropped
+            return self._json(payload)
         if route == "/api/scan":
             folder = library.get_setting("music_folder")
             if not folder:
@@ -1796,10 +1843,10 @@ class Handler(BaseHTTPRequestHandler):
             library.scan_async(folder, full=bool(payload.get("full")))
             return self._json({"started": True})
         if route == "/api/played":
-            library.mark_played(int(payload.get("id", 0)))
+            library.mark_played(self._int(payload.get("id")))
             return self._json({"ok": True})
         if route == "/api/rating":
-            library.set_rating(int(payload.get("id", 0)), int(payload.get("rating", 0)))
+            library.set_rating(self._int(payload.get("id")), self._int(payload.get("rating")))
             return self._json({"ok": True})
         if route == "/api/setting":
             key = str(payload.get("key", ""))
@@ -1816,27 +1863,28 @@ class Handler(BaseHTTPRequestHandler):
                 playlist_id = library.create_playlist(name)
             except sqlite3.IntegrityError:
                 return self._error(409, f"A playlist named '{name}' already exists")
-            ids = [int(i) for i in payload.get("tracks", [])]
+            ids = self._ids(payload.get("tracks"))
             if ids:
                 library.add_to_playlist(playlist_id, ids)
             return self._json({"id": playlist_id})
         if route == "/api/playlist/rename":
-            library.rename_playlist(int(payload["id"]), _clean(payload.get("name")) or "Playlist")
+            library.rename_playlist(self._int(payload.get("id")),
+                                    _clean(payload.get("name")) or "Playlist")
             return self._json({"ok": True})
         if route == "/api/playlist/delete":
-            library.delete_playlist(int(payload["id"]))
+            library.delete_playlist(self._int(payload.get("id")))
             return self._json({"ok": True})
         if route == "/api/playlist/add":
-            count = library.add_to_playlist(int(payload["id"]),
-                                            [int(i) for i in payload.get("tracks", [])])
+            count = library.add_to_playlist(self._int(payload.get("id")),
+                                            self._ids(payload.get("tracks")))
             return self._json({"added": count})
         if route == "/api/playlist/remove":
-            library.remove_from_playlist(int(payload["id"]),
-                                         [int(i) for i in payload.get("tracks", [])])
+            library.remove_from_playlist(self._int(payload.get("id")),
+                                         self._ids(payload.get("tracks")))
             return self._json({"ok": True})
         if route == "/api/playlist/order":
-            library.set_playlist_order(int(payload["id"]),
-                                       [int(i) for i in payload.get("tracks", [])])
+            library.set_playlist_order(self._int(payload.get("id")),
+                                       self._ids(payload.get("tracks")))
             return self._json({"ok": True})
         if route == "/api/update/install":
             result = install_update(library)
@@ -1845,7 +1893,7 @@ class Handler(BaseHTTPRequestHandler):
             threading.Thread(target=self._shutdown, daemon=True).start()
             return self._json(result)
         if route == "/api/reveal":
-            return self._json(self.reveal(int(payload.get("id", 0))))
+            return self._json(self.reveal(self._int(payload.get("id"))))
         if route == "/api/window/relaunch":
             if self.server.browser is None:
                 return self._error(400, "Cadence did not open this window, so it cannot "
@@ -3365,6 +3413,7 @@ function playAt(pos) {
   const track = state.byId.get(player.queue[player.order[pos]]);
   if (!track) return next();
   player.current = track;
+  eqEnsure();
   audio.src = streamUrl(track.id);
   audio.play().catch(err => {
     if (err && err.name !== 'AbortError') toast('Cannot play: ' + err.message, 'err');
@@ -3691,6 +3740,27 @@ const EQ_PRESETS = {
 const eq = { ctx: null, source: null, preampNode: null, filters: [], limiterNode: null,
              gains: EQ_BANDS.map(() => 0), preamp: 0, on: false, limiter: false };
 
+// An AudioContext created before anyone has touched the page starts suspended,
+// and routing the audio element through a suspended graph produces silence
+// rather than an error. So the graph is never built until a real interaction
+// has happened, and any interaction resumes one that has gone to sleep.
+let userGestured = false;
+
+function eqEnsure() {
+  if (!(eq.on || eq.limiter)) return;
+  if (!eq.ctx) {
+    if (!userGestured) return;   // until then, play straight through the element
+    if (!eqBuild()) return;
+  }
+  if (eq.ctx.state === 'suspended') eq.ctx.resume().catch(() => {});
+  eqApply();
+}
+
+function noteGesture() {
+  userGestured = true;
+  eqEnsure();
+}
+
 function eqBuild() {
   if (eq.ctx) return true;
   const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -3752,7 +3822,9 @@ function eqLoad(raw) {
       eq.gains = saved.gains.map(g => Math.max(-12, Math.min(12, Number(g) || 0)));
     }
   } catch { /* a corrupt setting just means defaults */ }
-  if (eq.on) { eqBuild(); eqApply(); }
+  // Deliberately not built here: see eqEnsure. Building now would capture the
+  // audio element into a graph that cannot start, and every track would be
+  // silent until something happened to resume it.
 }
 
 const hz = f => f >= 1000 ? (f / 1000) + 'k' : String(f);
@@ -4311,6 +4383,9 @@ async function quitApp() {
 function wire() {
   $('#app-icon').src = '/icon.svg';
   buildMenus();
+  for (const event of ['pointerdown', 'keydown']) {
+    addEventListener(event, noteGesture, { capture: true });
+  }
 
   document.addEventListener('click', async e => {
     const menuButton = e.target.closest('.menu>button');

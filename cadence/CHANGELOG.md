@@ -4,14 +4,31 @@ Every release of Cadence, newest first. The version here is the value of
 `APP_VERSION` in `Cadence.py`, and each release is tagged `cadence-v<version>`
 on the commit that produced its executable.
 
-## 1.2.3
+## 1.2.4
 
-- Fixed: every disclosure chevron pointed the wrong way. They were being rotated
-  in the wrong direction, so a collapsed section pointed up and an expanded one
-  pointed right — neither of which means anything. Collapsed now points right
-  and expanded points down, as everywhere else.
-- **Hide the Windows title bar** is on the View menu as well as in Preferences,
-  since burying it two levels down made it hard to find.
+- **Fixed: tracks would not play until the equalizer was switched off and on
+  again.** If the equalizer had ever been enabled, Cadence rebuilt its audio
+  graph while the page was still loading — before anything had been clicked.
+  A browser starts an audio graph created that early in a suspended state, and
+  once the player is routed through a suspended graph the result is silence
+  rather than an error, which is why toggling the equalizer appeared to fix it:
+  that click was the interaction the graph had been waiting for. The graph is
+  now built on the first real interaction instead, and resumed whenever it goes
+  to sleep. With the equalizer off, no audio graph is created at all.
+- **Fixed: a folder could delete another folder's tracks.** Deciding which
+  tracks had gone missing compared paths by prefix, so `D:\Music2` counted as
+  being inside `D:\Music` and its tracks were removed from the library as
+  missing. Paths are compared by containment now.
+- **Fixed: changing the music folder left the old folder's tracks behind.**
+  Only files under the designated folder are ever scanned, so those leftovers
+  could never be refreshed or removed — they sat in the library pointing at
+  files Cadence was no longer watching. Changing the folder now drops them.
+- Fixed: every disclosure chevron pointed the wrong way. A collapsed section
+  pointed up and an expanded one pointed right. Collapsed points right and
+  expanded points down now.
+- **Hide the Windows title bar** is on the View menu as well as in Preferences.
+- Malformed ids in a request are answered rather than raising and dropping the
+  connection.
 
 ## 1.2.2
 
@@ -189,6 +206,7 @@ First release.
 - Windows executable built with PyInstaller by GitHub Actions.
 
 [1.2.3]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.2.3
+[1.2.4]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.2.4
 [1.2.2]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.2.2
 [1.2.1]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.2.1
 [1.2.0]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.2.0
