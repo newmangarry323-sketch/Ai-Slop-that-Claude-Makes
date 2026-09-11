@@ -9,6 +9,8 @@ and a status bar in a dark blue accent.
 
 <br clear="left">
 
+![Cadence](docs/screenshot.png)
+
 ## The whole program is one file
 
 `Cadence.py` is the entire application — tag parser, library index, web server,
@@ -36,9 +38,8 @@ than a tab. If none of those are installed it falls back to your default browser
 | `--write-icon [PATH]` | Write the app icon as a multi-resolution `.ico` (16-256 px) |
 | `--write-png [PATH]` / `--write-svg [PATH]` | Write the icon as PNG or SVG |
 
-The raster icons are not stored in the repository — `Cadence.py` draws them itself
-from the same geometry as `Cadence.svg`, so `--write-icon` reproduces `Cadence.ico`
-byte for byte whenever you need it.
+`Cadence.ico` is checked in, but `Cadence.py` draws it from the same geometry as
+`Cadence.svg`, so `--write-icon` reproduces it byte for byte at any time.
 
 ## Building `Cadence.exe`
 
