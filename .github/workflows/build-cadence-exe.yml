@@ -1,0 +1,69 @@
+name: Build Cadence.exe
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'cadence-v*'
+    paths:
+      - 'cadence/Cadence.py'
+      - '.github/workflows/build-cadence-exe.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: cadence
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PyInstaller
+        run: pip install --disable-pip-version-check pyinstaller
+
+      - name: Sanity-check the source
+        run: |
+          python -c "import ast, pathlib; ast.parse(pathlib.Path('Cadence.py').read_text(encoding='utf-8')); print('parses clean')"
+          python Cadence.py --version
+
+      - name: Generate the icon
+        run: python Cadence.py --write-icon Cadence.ico
+
+      - name: Build the one-file executable
+        run: >
+          pyinstaller --onefile --noconsole
+          --name Cadence
+          --icon Cadence.ico
+          --version-file version.txt
+          Cadence.py
+
+      - name: Smoke-test the executable
+        shell: pwsh
+        run: |
+          # --noconsole builds cannot print, so prove it runs by having it emit its icon.
+          Start-Process -FilePath dist\Cadence.exe -ArgumentList '--write-png','probe.png' -Wait
+          if (-not (Test-Path probe.png)) { throw 'Cadence.exe produced no output' }
+          Write-Host "ok: exe ran and wrote $((Get-Item probe.png).Length) bytes"
+          Get-Item dist\Cadence.exe | Format-List Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cadence-windows
+          path: |
+            cadence/dist/Cadence.exe
+            cadence/Cadence.ico
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/cadence-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: cadence/dist/Cadence.exe
