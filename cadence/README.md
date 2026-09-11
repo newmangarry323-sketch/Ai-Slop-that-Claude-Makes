@@ -108,6 +108,14 @@ appear in the library with full metadata — they just will not play.
 requests, so scrubbing a large FLAC does not download it first), volume, play
 counts, and cover art in the player and the details panel.
 
+**Playlists** come in two kinds, and the New Playlist dialog asks which you
+want. One is kept **in the library index**, stored in `library.db` alongside
+play counts, and travels wherever that file goes. The other is kept **only on
+this computer**, held by the browser rather than written to the index — it
+survives the index being deleted or rebuilt, and it does not follow `library.db`
+to another machine. Local playlists remember their tracks by file path rather
+than by row number, which is why a rebuilt index does not lose them.
+
 **Organising.** Playlists, export to `.m3u8`, multi-select with `Ctrl`/`Shift`,
 sortable columns, search across title / artist / album / genre / filename, an
 artist → album tree, and "Reveal in File Manager".
@@ -178,6 +186,30 @@ nothing else.
 The server binds to `127.0.0.1` only, never to your network. Each run mints a
 random token that requests must carry, and the `Host` header is checked, so
 another page in your browser cannot read your library through the local port.
+
+### What leaves your computer
+
+Your music never does. Cadence has no account, no sync, and no upload of any
+kind. GitHub hosts the program; it never sees anything about your library.
+
+The entire program makes exactly one kind of outbound request, and only when
+**Check for updates** is on:
+
+```
+GET https://api.github.com/repos/.../releases/latest
+```
+
+That is a read. It carries no body — no filenames, no paths, no tags, no play
+counts, nothing about your library — and the reply is simply the newest version
+number. GitHub sees a request arriving, as any website does, and nothing more.
+Pressing **Download and install** then fetches the new executable, which is the
+same file you would download from the releases page by hand. Untick **Check for
+updates** in Preferences and Cadence makes no outbound request at all.
+
+Everything else is loopback: the page talks to `127.0.0.1` and nowhere else.
+Your files stay where they are, read-only, and the index stays in the config
+directory above. You can verify all of this yourself — search `Cadence.py` for
+`https://` and you will find one address.
 
 ## Themes
 

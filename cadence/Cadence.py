@@ -41,7 +41,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 APP_NAME = "Cadence"
-APP_VERSION = "1.1.4"
+APP_VERSION = "1.2.0"
 DEFAULT_PORT = 8731
 
 # Extensions we will index. The ones we can actually parse tags for are listed
@@ -2637,6 +2637,8 @@ const state = {
   tracks: [],
   byId: new Map(),
   playlists: [],
+  localPlaylists: [],
+  byPath: new Map(),
   tabs: [],
   activeTab: null,
   view: 'library',
@@ -2701,6 +2703,67 @@ async function api(path, options) {
   if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
   return data;
 }
+/* ---------- playlists kept in this browser ---------- */
+// These never reach library.db. They live in the browser's own storage, so they
+// stay on this machine and survive the index being deleted or rebuilt. Tracks
+// are held by path rather than by row id for exactly that reason: row ids are
+// reassigned when the index is rebuilt, paths are not.
+const LOCAL_KEY = 'cadence.local-playlists.v1';
+
+function loadLocalPlaylists() {
+  try {
+    const raw = localStorage.getItem(LOCAL_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    state.localPlaylists = Array.isArray(parsed) ? parsed : [];
+  } catch {
+    state.localPlaylists = [];   // private window, blocked storage, corrupt value
+  }
+}
+
+function saveLocalPlaylists() {
+  try {
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(state.localPlaylists));
+    return true;
+  } catch (err) {
+    toast('This browser will not store local playlists (' + err.name + ')', 'err');
+    return false;
+  }
+}
+
+const localPlaylist = id => state.localPlaylists.find(p => p.id === id);
+const localTracks = playlist =>
+  (playlist ? playlist.paths : []).map(path => state.byPath.get(path)).filter(Boolean);
+const localMissing = playlist =>
+  (playlist ? playlist.paths : []).filter(path => !state.byPath.has(path)).length;
+
+function createLocalPlaylist(name, tracks) {
+  const playlist = {
+    id: 'L' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    name, created: Date.now(), paths: (tracks || []).map(t => t.path),
+  };
+  state.localPlaylists.push(playlist);
+  return saveLocalPlaylists() ? playlist : null;
+}
+
+function addToLocalPlaylist(id, tracks) {
+  const playlist = localPlaylist(id);
+  if (!playlist) return 0;
+  const before = playlist.paths.length;
+  for (const track of tracks) {
+    if (!playlist.paths.includes(track.path)) playlist.paths.push(track.path);
+  }
+  saveLocalPlaylists();
+  return playlist.paths.length - before;
+}
+
+function removeFromLocalPlaylist(id, tracks) {
+  const playlist = localPlaylist(id);
+  if (!playlist) return;
+  const drop = new Set(tracks.map(t => t.path));
+  playlist.paths = playlist.paths.filter(path => !drop.has(path));
+  saveLocalPlaylists();
+}
+
 const streamUrl = id => `/api/stream?id=${id}&t=${encodeURIComponent(state.token)}`;
 const artUrl    = id => `/api/art?id=${id}&t=${encodeURIComponent(state.token)}`;
 
@@ -2819,6 +2882,7 @@ function tracksForTab(tab) {
       list = playlist ? playlist.tracks.map(id => state.byId.get(id)).filter(Boolean) : [];
       return list;  // playlist order is meaningful, never re-sorted by default
     }
+    case 'localplaylist': return localTracks(localPlaylist(tab.value));
     case 'search':   list = matchTracks(tab.value); break;
     case 'queue':    return player.queue.map(id => state.byId.get(id)).filter(Boolean);
     default:         list = [];
@@ -2909,6 +2973,16 @@ function emptyHtml(tab) {
       <p>Nothing in the library matches <code>${esc(tab.value)}</code>. Try fewer words —
       search looks at title, artist, album, genre and filename.</p>`;
   }
+  if (tab.kind === 'localplaylist') {
+    const playlist = localPlaylist(tab.value);
+    const missing = localMissing(playlist);
+    return `${icon('pin')}<h2>${missing ? 'None of these are in the library' : 'Empty playlist'}</h2>
+      <p>${missing
+        ? `This list names ${missing} track${missing === 1 ? '' : 's'} that the library does
+           not currently hold. It is kept in this browser, so it outlived the index —
+           rescan the folder, or point Cadence back at the folder those files live in.`
+        : 'Select tracks, right-click, and choose <b>Add to Playlist</b>.'}</p>`;
+  }
   if (tab.kind === 'queue') {
     return `${icon('queue')}<h2>The queue is empty</h2>
       <p>Double-click a track to start playing, or right-click a selection and choose
@@ -2983,14 +3057,33 @@ function renderSide() {
   } else if (state.view === 'playlists') {
     heading.textContent = 'Playlists';
     addAction('plus', 'New playlist', 'new-playlist');
-    body.innerHTML = state.playlists.length ? state.playlists.map(p => `
-      <div class="row ${state.activeTab === 'pl:' + p.id ? 'on' : ''}" data-open="playlist" data-value="${p.id}"
+    const shared = state.playlists.map(p => `
+      <div class="row lvl1 ${state.activeTab === 'pl:' + p.id ? 'on' : ''}"
+           data-open="playlist" data-value="${p.id}"
            data-ctx="playlist" data-name="${esc(p.name)}">
         ${icon('playlist')}<span class="label">${esc(p.name)}</span>
-        <span class="sub">${p.count}</span></div>`).join('')
-      : `<div style="padding:14px 12px;color:var(--fg-muted);font-size:12px;line-height:1.7">
-           No playlists yet. Select tracks, right-click, then <b>Add to Playlist</b> —
-           or press the <b>+</b> above.</div>`;
+        <span class="sub">${p.count}</span></div>`).join('');
+    const local = state.localPlaylists.map(p => {
+      const missing = localMissing(p);
+      return `<div class="row lvl1 ${state.activeTab === 'lp:' + p.id ? 'on' : ''}"
+           data-open="localplaylist" data-value="${esc(p.id)}"
+           data-ctx="localplaylist" data-name="${esc(p.name)}"
+           title="${esc(p.name)}${missing ? ` - ${missing} track(s) not in the library` : ''}">
+        ${icon('pin')}<span class="label">${esc(p.name)}</span>
+        <span class="sub">${localTracks(p).length}${missing ? '+' + missing + '?' : ''}</span></div>`;
+    }).join('');
+    const section = (key, title, rows, note) => `
+      <div class="section" data-sec="${key}"><div class="head">
+        ${icon('chev', 'chev')}<span>${title}</span></div><div class="body">
+        ${rows || `<div style="padding:10px 12px;color:var(--fg-faint);font-size:11px;
+                     line-height:1.7">${note}</div>`}
+      </div></div>`;
+    body.innerHTML =
+      section('pl-shared', 'In the library', shared,
+              'None yet. Select tracks, right-click, then Add to Playlist.') +
+      section('pl-local', 'On this computer', local,
+              'None yet. These are kept by this browser rather than in the library ' +
+              'index, so they stay on this machine and outlive the index.');
   } else if (state.view === 'queue') {
     heading.textContent = 'Queue';
     addAction('x', 'Clear queue', 'clear-queue');
@@ -3895,6 +3988,9 @@ const SOURCES = {
   playlist: v => { const p = state.playlists.find(x => x.id === +v) || { name: 'Playlist' };
                    return { id: 'pl:' + v, kind: 'playlist', value: +v, icon: 'playlist',
                             title: p.name, crumbs: ['Playlists', p.name] }; },
+  localplaylist: v => { const p = localPlaylist(v) || { name: 'Playlist' };
+                        return { id: 'lp:' + v, kind: 'localplaylist', value: v, icon: 'pin',
+                                 title: p.name, crumbs: ['Playlists', 'On this computer', p.name] }; },
   queue:    () => ({ id: 'queue', kind: 'queue', icon: 'queue', title: 'Queue', crumbs: ['Queue'] }),
 };
 
@@ -3906,6 +4002,7 @@ async function refreshTracks() {
   const data = await api('/api/tracks');
   state.tracks = data.tracks;
   state.byId = new Map(state.tracks.map(t => [t.id, t]));
+  state.byPath = new Map(state.tracks.map(t => [t.path, t]));
   state.info = await api('/api/state');
   renderSide(); renderList(); updateStatus();
 }
@@ -4010,12 +4107,24 @@ async function useFolder() {
 }
 
 function newPlaylist(seedIds) {
+  const seeded = (seedIds || []).length;
   showModal('New playlist',
     `<div class="field"><label>Name</label>
       <input id="pl-name" placeholder="Late night" autocomplete="off">
-      <div class="hint">${seedIds && seedIds.length
-        ? `${seedIds.length} selected track${seedIds.length === 1 ? '' : 's'} will be added.`
-        : 'Starts empty — add tracks by right-clicking a selection.'}</div></div>`,
+      <div class="hint">${seeded
+        ? `${seeded} selected track${seeded === 1 ? '' : 's'} will be added.`
+        : 'Starts empty — add tracks by right-clicking a selection.'}</div></div>
+     <div class="field"><label>Keep it</label>
+       <label class="sw"><input type="radio" name="pl-where" value="library" checked>
+         <span>In the library index
+           <em>Stored in library.db, alongside play counts. Goes wherever that file goes.</em>
+         </span></label>
+       <label class="sw"><input type="radio" name="pl-where" value="local">
+         <span>Only on this computer
+           <em>Kept by this browser, never written to the index. Survives the index being
+           deleted or rebuilt, and does not follow library.db to another machine.</em>
+         </span></label>
+     </div>`,
     `<button class="btn quiet" data-act="modal-close">Cancel</button>
      <button class="btn" data-act="create-playlist">Create</button>`);
   const input = $('#pl-name');
@@ -4023,12 +4132,25 @@ function newPlaylist(seedIds) {
   input._seed = seedIds || [];
   input.addEventListener('keydown', e => { if (e.key === 'Enter') createPlaylist(); });
 }
+
 async function createPlaylist() {
   const input = $('#pl-name');
   const name = (input.value || '').trim();
   if (!name) { input.focus(); return; }
+  const where = (document.querySelector('input[name="pl-where"]:checked') || {}).value;
+  const seed = input._seed || [];
+
+  if (where === 'local') {
+    const tracks = seed.map(id => state.byId.get(id)).filter(Boolean);
+    const made = createLocalPlaylist(name, tracks);
+    if (!made) return;
+    closeModal(); renderSide();
+    setView('playlists'); openTab(SOURCES.localplaylist(made.id));
+    toast(`"${name}" created on this computer`, 'ok');
+    return;
+  }
   try {
-    const res = await api('/api/playlist/create', { body: { name, tracks: input._seed || [] } });
+    const res = await api('/api/playlist/create', { body: { name, tracks: seed } });
     closeModal(); await refreshPlaylists();
     setView('playlists'); openTab(SOURCES.playlist(res.id));
     toast(`Playlist "${name}" created`, 'ok');
@@ -4038,13 +4160,24 @@ async function createPlaylist() {
 function addToPlaylistMenu(x, y, tracks) {
   const ids = tracks.map(t => t.id);
   const items = [{ id: 'pl-new', label: 'New Playlist…' }];
-  if (state.playlists.length) items.push('-');
-  state.playlists.forEach(p => items.push({ id: 'pl-' + p.id, label: p.name }));
+  if (state.playlists.length) {
+    items.push('-');
+    state.playlists.forEach(p => items.push({ id: 'pl-' + p.id, label: p.name }));
+  }
+  if (state.localPlaylists.length) {
+    items.push('-');
+    state.localPlaylists.forEach(p =>
+      items.push({ id: 'lp-' + p.id, label: p.name + '  (this computer)' }));
+  }
   showContext(x, y, items);
   $('#ctx')._handler = id => {
     if (id === 'pl-new') return newPlaylist(ids);
-    const playlistId = +id.slice(3);
-    api('/api/playlist/add', { body: { id: playlistId, tracks: ids } })
+    if (id.startsWith('lp-')) {
+      const added = addToLocalPlaylist(id.slice(3), tracks);
+      renderSide();
+      return toast(`${added} added`, 'ok');
+    }
+    api('/api/playlist/add', { body: { id: +id.slice(3), tracks: ids } })
       .then(res => { refreshPlaylists(); toast(`${res.added} added`, 'ok'); })
       .catch(err => toast(err.message, 'err'));
   };
@@ -4439,7 +4572,8 @@ function wire() {
       { id: 'next', label: 'Play Next' },
       '-',
       { id: 'addpl', label: 'Add to Playlist…' },
-      ...(tab && tab.kind === 'playlist' ? [{ id: 'rmpl', label: 'Remove from Playlist', key: 'Del' }] : []),
+      ...(tab && (tab.kind === 'playlist' || tab.kind === 'localplaylist')
+          ? [{ id: 'rmpl', label: 'Remove from Playlist', key: 'Del' }] : []),
       ...(tab && tab.kind === 'queue' ? [{ id: 'rmq', label: 'Remove from Queue', key: 'Del' }] : []),
       '-',
       { id: 'album', label: 'Go to Album', disabled: many },
@@ -4465,7 +4599,13 @@ function wire() {
         player.order.splice(at, 0, ...added);
         renderNowPlaying(); toast('Playing next', 'ok');
       } else if (id === 'addpl') addToPlaylistMenu(e.clientX, e.clientY, tracks);
-      else if (id === 'rmpl') removeFromPlaylist(tab.value, tracks.map(t => t.id));
+      else if (id === 'rmpl') {
+        if (tab.kind === 'localplaylist') {
+          removeFromLocalPlaylist(tab.value, tracks);
+          state.sel.clear(); renderList(); renderSide();
+          toast(`${tracks.length} removed from playlist`, 'ok');
+        } else removeFromPlaylist(tab.value, tracks.map(t => t.id));
+      }
       else if (id === 'rmq') removeFromQueue(tracks.map(t => t.id));
       else if (id === 'album') openTab(SOURCES.album(first.album, first.albumartist));
       else if (id === 'artist') openTab(SOURCES.artist(first.albumartist));
@@ -4479,6 +4619,52 @@ function wire() {
 
   // sidebar context menu (playlists)
   $('#side-body').addEventListener('contextmenu', e => {
+    const localRow = e.target.closest('[data-ctx="localplaylist"]');
+    if (localRow) {
+      e.preventDefault();
+      const id = localRow.dataset.value, name = localRow.dataset.name;
+      showContext(e.clientX, e.clientY, [
+        { id: 'open', label: 'Open' },
+        { id: 'play', label: 'Play' },
+        '-',
+        { id: 'rename', label: 'Rename…' },
+        { id: 'delete', label: 'Delete' },
+      ]);
+      $('#ctx')._handler = action => {
+        const playlist = localPlaylist(id);
+        if (action === 'open') openTab(SOURCES.localplaylist(id));
+        else if (action === 'play') {
+          const tracks = localTracks(playlist);
+          if (tracks.length) playQueue(tracks.map(t => t.id), 0);
+          else toast('None of those tracks are in the library', 'err');
+        } else if (action === 'rename') {
+          showModal('Rename playlist',
+            `<div class="field"><label>Name</label>
+               <input id="pl-rename" value="${esc(name)}"></div>`,
+            `<button class="btn quiet" data-act="modal-close">Cancel</button>
+             <button class="btn" id="do-rename">Rename</button>`);
+          $('#pl-rename').focus(); $('#pl-rename').select();
+          $('#do-rename').addEventListener('click', () => {
+            const next = $('#pl-rename').value.trim();
+            if (next) { playlist.name = next; saveLocalPlaylists(); }
+            closeModal(); renderSide(); renderTabs();
+          });
+        } else if (action === 'delete') {
+          showModal('Delete playlist',
+            `<p>Delete <b>${esc(name)}</b> from this computer? The audio files are
+             untouched — only the list goes away.</p>`,
+            `<button class="btn quiet" data-act="modal-close">Cancel</button>
+             <button class="btn" id="do-delete">Delete</button>`);
+          $('#do-delete').addEventListener('click', () => {
+            state.localPlaylists = state.localPlaylists.filter(p => p.id !== id);
+            saveLocalPlaylists();
+            closeModal(); closeTab('lp:' + id); renderSide();
+            toast('Playlist deleted', 'ok');
+          });
+        }
+      };
+      return;
+    }
     const row = e.target.closest('[data-ctx="playlist"]');
     if (!row) return;
     e.preventDefault();
@@ -4634,6 +4820,11 @@ function wire() {
     if (e.code === 'Delete' && state.sel.size) {
       const tab = currentTab();
       const ids = selectedTracks().map(t => t.id);
+      if (tab && tab.kind === 'localplaylist') {
+        removeFromLocalPlaylist(tab.value, selectedTracks());
+        state.sel.clear(); renderList(); renderSide();
+        return toast(`${ids.length} removed from playlist`, 'ok');
+      }
       if (tab && tab.kind === 'playlist') return removeFromPlaylist(tab.value, ids);
       if (tab && tab.kind === 'queue') return removeFromQueue(ids);
     }
@@ -4769,6 +4960,7 @@ async function boot() {
   player.volume = settings.volume ? parseFloat(settings.volume) : 0.8;
   setVolume(player.volume);
 
+  loadLocalPlaylists();
   await refreshTracks();
   await refreshPlaylists();
 

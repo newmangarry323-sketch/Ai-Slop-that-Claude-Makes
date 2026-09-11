@@ -4,6 +4,25 @@ Every release of Cadence, newest first. The version here is the value of
 `APP_VERSION` in `Cadence.py`, and each release is tagged `cadence-v<version>`
 on the commit that produced its executable.
 
+## 1.2.0
+
+- **Playlists can now be kept on this computer instead of in the index.** The
+  New Playlist dialog asks where it should live. One kind is stored in
+  `library.db` as before, alongside play counts, and travels with that file. The
+  other is held by the browser and never written to the index, so it survives
+  the index being deleted or rebuilt and stays on the machine it was made on.
+  They sit in their own group in the Playlists sidebar and behave the same
+  otherwise — open, play, rename, delete, add and remove tracks, export.
+
+  Local playlists remember tracks by file path rather than by row number,
+  because row numbers are reassigned when the index is rebuilt and paths are
+  not. If a track is missing from the library the list says so rather than
+  quietly shrinking.
+
+- Documented what leaves your computer, which is nothing about your music. The
+  whole program makes one outbound request, a read of the latest release number
+  from GitHub, and only when the update check is on.
+
 ## 1.1.4
 
 - **Video files are no longer indexed.** `.mp4` is a container, not a format —
@@ -138,6 +157,7 @@ First release.
   draws its own icon, so `--write-icon` produces the `.ico` used to package it.
 - Windows executable built with PyInstaller by GitHub Actions.
 
+[1.2.0]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.2.0
 [1.1.4]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.1.4
 [1.1.3]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.1.3
 [1.1.2]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.1.2
