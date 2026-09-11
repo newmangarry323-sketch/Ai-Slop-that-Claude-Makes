@@ -41,7 +41,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 APP_NAME = "Cadence"
-APP_VERSION = "1.1.2"
+APP_VERSION = "1.1.3"
 DEFAULT_PORT = 8731
 
 # Extensions we will index. The ones we can actually parse tags for are listed
@@ -1982,6 +1982,46 @@ html[data-theme="solarized-light"] {
   --sel:#dbe6ea; --sel-inactive:#e4ddc8;
   --ok:#859900; --warn:#b58900; --err:#dc322f;
 }
+/* Nord, by Arctic Ice Studio: polar night for surfaces, snow storm for text. */
+html[data-theme="nord"] {
+  --bg-editor:#2e3440; --bg-side:#3b4252; --bg-activity:#272c36;
+  --bg-title:#3b4252; --bg-panel:#272c36; --bg-input:#434c5e;
+  --bg-hover:#434c5e; --bg-widget:#3b4252; --bg-drop:#2e3440;
+  --fg:#d8dee9; --fg-muted:#a9b1c1; --fg-strong:#eceff4; --fg-faint:#7b8494;
+  --border:#4c566a; --border-soft:#3b4252; --shadow:rgba(20,24,32,.55);
+  --sel:#434c5e; --sel-inactive:#3b4252;
+  --ok:#a3be8c; --warn:#ebcb8b; --err:#bf616a;
+}
+/* Gruvbox dark, by Pavel Pertsev: warm greys against soft retro tones. */
+html[data-theme="gruvbox"] {
+  --bg-editor:#282828; --bg-side:#32302f; --bg-activity:#1d2021;
+  --bg-title:#32302f; --bg-panel:#1d2021; --bg-input:#3c3836;
+  --bg-hover:#3c3836; --bg-widget:#32302f; --bg-drop:#282828;
+  --fg:#ebdbb2; --fg-muted:#bdae93; --fg-strong:#fbf1c7; --fg-faint:#928374;
+  --border:#504945; --border-soft:#3c3836; --shadow:rgba(0,0,0,.5);
+  --sel:#504945; --sel-inactive:#3c3836;
+  --ok:#b8bb26; --warn:#fabd2f; --err:#fb4934;
+}
+/* Higher contrast than Dark, for when the default is too soft. */
+html[data-theme="black"] {
+  --bg-editor:#000000; --bg-side:#0a0a0a; --bg-activity:#0a0a0a;
+  --bg-title:#141414; --bg-panel:#000000; --bg-input:#1c1c1c;
+  --bg-hover:#1f1f1f; --bg-widget:#121212; --bg-drop:#000000;
+  --fg:#e6e6e6; --fg-muted:#a0a0a0; --fg-strong:#ffffff; --fg-faint:#6e6e6e;
+  --border:#3a3a3a; --border-soft:#242424; --shadow:rgba(0,0,0,.8);
+  --sel:#1f3a56; --sel-inactive:#232323;
+  --ok:#7ee787; --warn:#e3b341; --err:#ff7b72;
+}
+/* Paper: warm off-white, easier than pure white under a lamp. */
+html[data-theme="paper"] {
+  --bg-editor:#faf7f2; --bg-side:#f2ede4; --bg-activity:#e8e2d6;
+  --bg-title:#ebe5da; --bg-panel:#f5f1e9; --bg-input:#ffffff;
+  --bg-hover:#e8e2d6; --bg-widget:#f2ede4; --bg-drop:#faf7f2;
+  --fg:#43403a; --fg-muted:#6b665e; --fg-strong:#1f1d1a; --fg-faint:#9a948a;
+  --border:#d8d0c2; --border-soft:#e6e0d4; --shadow:rgba(90,80,60,.2);
+  --sel:#dfe7f0; --sel-inactive:#e6e0d4;
+  --ok:#4a7c2f; --warn:#96700a; --err:#b3261e;
+}
 html[data-theme="light"] {
   --bg-editor:#ffffff; --bg-side:#f3f3f3; --bg-activity:#e8e8e8;
   --bg-title:#dddddd; --bg-panel:#f8f8f8; --bg-input:#ffffff;
@@ -2017,17 +2057,25 @@ input,select{font:inherit}
 #titlebar img{width:17px;height:17px;margin:0 8px 0 4px}
 #wincontrols{display:flex;align-items:center;gap:8px;padding:0 8px 0 2px;-webkit-app-region:no-drag}
 .win{width:12px;height:12px;border-radius:50%;flex:0 0 auto;position:relative;
-  border:1px solid rgba(0,0,0,.2)}
+  padding:0;border:1px solid rgba(0,0,0,.2)}
 .win.close{background:#ff5f57}
 .win.min{background:#febc2e}
 .win.max{background:#28c840}
 .win[disabled]{background:#6b6b6b;border-color:transparent;cursor:default}
-.win::after{position:absolute;inset:0;display:grid;place-items:center;font-size:9px;
-  line-height:1;color:rgba(0,0,0,.55);opacity:0;font-weight:700}
+/* Drawn as geometry rather than text: a glyph is centred by its line box, not
+   by its ink, so x and a dash land at different heights - and the font may not
+   carry the arrow at all. Shapes centre exactly and look the same everywhere. */
+.win::before,.win::after{content:"";position:absolute;left:50%;top:50%;
+  background:rgba(0,0,0,.62);border-radius:1px;opacity:0;transition:opacity .1s;
+  box-sizing:border-box}
+#wincontrols:hover .win:not([disabled])::before,
 #wincontrols:hover .win:not([disabled])::after{opacity:1}
-.win.close::after{content:"\00d7";font-size:11px}
-.win.min::after{content:"\2013"}
-.win.max::after{content:"\2922";font-size:10px}
+.win.min::before,.win.max::before{display:none}
+.win.close::before{width:7px;height:1.5px;transform:translate(-50%,-50%) rotate(45deg)}
+.win.close::after{width:7px;height:1.5px;transform:translate(-50%,-50%) rotate(-45deg)}
+.win.min::after{width:7px;height:1.5px;transform:translate(-50%,-50%)}
+.win.max::after{width:6.5px;height:6.5px;background:none;border-radius:1.5px;
+  border:1.5px solid rgba(0,0,0,.62);transform:translate(-50%,-50%)}
 .menu{position:relative}
 .menu>button{padding:3px 8px;border-radius:4px;font-size:12px;color:var(--fg)}
 .menu>button:hover,.menu.open>button{background:rgba(128,128,128,.22)}
@@ -2977,6 +3025,15 @@ const ACCENTS = [
   ['Steel',        '#101c28,#16283a,#1d3750,#264a6b,#31618c,#4a83b5,#77a8d4'],
   ['Indigo',       '#140f33,#1c1547,#261d63,#332885,#4336ab,#6355d8,#8f86ee'],
   ['Teal',         '#04231f,#063330,#084642,#0a5c57,#0d7a72,#1aa79b,#4fd0c3'],
+  ['Slate',        '#12171c,#1a2128,#243039,#31414e,#425767,#5f7c90,#8fa9ba'],
+  ['Ocean',        '#04222e,#063243,#08465e,#0a5c7d,#0d78a3,#1aa0d4,#55c3ef'],
+  ['Violet',       '#1c0f2e,#281640,#361f58,#472a75,#5b3699,#7a56c4,#a488e4'],
+  ['Plum',         '#2a0f22,#3b1630,#501e41,#6a2856,#8a3470,#b4519a,#d986c1'],
+  ['Ember',        '#2d1206,#3f1a09,#55240d,#713111,#934218,#c46430,#e69366'],
+  ['Amber',        '#2b1d03,#3d2905,#523807,#6d4a09,#8f620d,#bf871c,#e5b451'],
+  ['Moss',         '#132008,#1c2e0c,#274011,#345616,#46721e,#63a02f,#93c866'],
+  ['Crimson',      '#2e0c14,#40111d,#571728,#731f36,#962a48,#c44866,#e4849a'],
+  ['Graphite',     '#1a1a1a,#242424,#313131,#414141,#565656,#7a7a7a,#a8a8a8'],
 ];
 
 function settingsTabHtml() {
@@ -3370,6 +3427,8 @@ const PREFS = [
   { key: 'compact',    label: 'Compact rows', hint: 'Tighter row height', def: false },
   { key: 'scanlaunch', label: 'Rescan the folder on launch', def: true },
   { key: 'countplays', label: 'Count plays', def: true },
+  { key: 'wincontrols', label: "Cadence's own window controls",
+    hint: 'Turn off if you would rather only have the ones Windows draws', def: true },
   { key: 'updates',    label: 'Check for updates',
     hint: 'Asks GitHub once a day whether a newer release exists', def: true },
 ];
@@ -3384,6 +3443,8 @@ function setPref(key, on) {
   applyPrefs();
 }
 function applyPrefs() {
+  const controls = $('#wincontrols');
+  if (controls) controls.hidden = !prefOn('wincontrols');
   document.documentElement.style.setProperty('--row-h', prefOn('compact') ? '20px' : '24px');
   document.documentElement.classList.toggle('no-anim', !prefOn('animate'));
   ROW_H = prefOn('compact') ? 20 : 24;
@@ -3478,8 +3539,7 @@ const hz = f => f >= 1000 ? (f / 1000) + 'k' : String(f);
 /* ---------- preferences popup ---------- */
 function prefsHtml() {
   const theme = document.documentElement.dataset.theme || 'dark';
-  const themes = [['dark', 'Dark'], ['light', 'Light'],
-                  ['solarized-dark', 'Solarized Dark'], ['solarized-light', 'Solarized Light']];
+  const themes = THEMES.map(t => [t, THEME_NAMES[t]]);
   const update = state.update || {};
   return `
     <div class="prefcols">
@@ -3623,9 +3683,13 @@ function setView(view) {
   renderSide();
 }
 function toggleSide() { $('#side').classList.toggle('hidden'); }
-const THEMES = ['dark', 'light', 'solarized-dark', 'solarized-light'];
-const THEME_NAMES = { 'dark': 'Dark', 'light': 'Light',
-                      'solarized-dark': 'Solarized Dark', 'solarized-light': 'Solarized Light' };
+const THEMES = ['dark', 'black', 'nord', 'gruvbox', 'solarized-dark',
+               'light', 'paper', 'solarized-light'];
+const THEME_NAMES = {
+  'dark': 'Dark', 'black': 'Black', 'nord': 'Nord', 'gruvbox': 'Gruvbox',
+  'solarized-dark': 'Solarized Dark', 'light': 'Light', 'paper': 'Paper',
+  'solarized-light': 'Solarized Light',
+};
 function toggleTheme() {
   const current = document.documentElement.dataset.theme || 'dark';
   setTheme(THEMES[(THEMES.indexOf(current) + 1) % THEMES.length]);
@@ -4595,8 +4659,14 @@ def _no_window_flags() -> dict:
     return {}
 
 
-def open_window(url: str, server: "Server | None" = None) -> None:
-    """Prefer a chromeless browser window so it reads as an app, not a tab."""
+def open_window(url: str, server: "Server | None" = None, frameless: bool = False) -> None:
+    """Prefer a chromeless browser window so it reads as an app, not a tab.
+
+    `frameless` launches the browser in kiosk mode, which drops the operating
+    system's own title bar and window buttons entirely and leaves Cadence's as
+    the only ones on screen. The cost is a window that fills the display and
+    cannot be dragged or resized, so it is opt-in.
+    """
     candidates: list[list[str]] = []
     if sys.platform == "win32":
         local = os.environ.get("LOCALAPPDATA", "")
@@ -4629,9 +4699,10 @@ def open_window(url: str, server: "Server | None" = None) -> None:
     for command in candidates:
         try:
             process = subprocess.Popen(
-                command + [f"--app={url}", f"--user-data-dir={profile}",
-                           "--window-size=1280,820", "--no-first-run",
-                           "--no-default-browser-check"],
+                command + (["--kiosk"] if frameless else [])
+                + [f"--app={url}", f"--user-data-dir={profile}",
+                   "--window-size=1280,820", "--no-first-run",
+                   "--no-default-browser-check"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 **_no_window_flags())
             if server is not None:
@@ -4686,6 +4757,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-scan", action="store_true", help="skip the launch scan")
     parser.add_argument("--keep-alive", action="store_true",
                         help="keep running after the window is closed")
+    parser.add_argument("--frameless", action="store_true",
+                        help="open without the operating system's title bar and window "
+                             "buttons, leaving only Cadence's (fills the screen)")
     parser.add_argument("--write-icon", metavar="PATH", nargs="?", const="Cadence.ico",
                         help="write the app icon as a multi-resolution .ico and exit")
     parser.add_argument("--write-png", metavar="PATH", nargs="?", const="Cadence.png",
@@ -4744,7 +4818,7 @@ def main(argv: list[str] | None = None) -> int:
         threading.Thread(target=watch_windows, args=(server,), daemon=True).start()
     log(f"{APP_NAME} {APP_VERSION} listening on {url}")
     if not args.no_browser:
-        threading.Timer(0.4, open_window, args=(url, server)).start()
+        threading.Timer(0.4, open_window, args=(url, server, args.frameless)).start()
     try:
         while thread.is_alive():
             thread.join(0.5)
