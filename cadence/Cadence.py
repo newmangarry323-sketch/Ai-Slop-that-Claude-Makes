@@ -41,7 +41,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 APP_NAME = "Cadence"
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.2.2"
 DEFAULT_PORT = 8731
 
 # Extensions we will index. The ones we can actually parse tags for are listed
@@ -4487,8 +4487,12 @@ function wire() {
     if (preset) {
       const chosen = EQ_PRESETS[preset.value];
       if (chosen) {
+        // Each setBand clears the preset, on the grounds that moving a band by
+        // hand means the curve is no longer that preset. Applying one is the
+        // exception, so remember which it was and put it back afterwards.
+        const applied = preset.value;
         chosen.forEach((g, i) => setBand(i, g));
-        preset.value = preset.value;   // setBand clears it; this is a deliberate choice
+        preset.value = applied;
         eqSave();
       }
       return;

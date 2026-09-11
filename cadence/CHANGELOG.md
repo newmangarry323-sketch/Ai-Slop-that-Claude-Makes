@@ -4,6 +4,13 @@ Every release of Cadence, newest first. The version here is the value of
 `APP_VERSION` in `Cadence.py`, and each release is tagged `cadence-v<version>`
 on the commit that produced its executable.
 
+## 1.2.2
+
+- Fixed: choosing an equalizer preset applied it correctly but then showed
+  **Custom** in the dropdown. Moving a band by hand clears the preset name,
+  since the curve is no longer that preset, and applying one was tripping over
+  its own bands doing exactly that.
+
 ## 1.2.1
 
 - **Hiding the Windows title bar is a setting now, not just a flag.** 1.1.3 added
@@ -172,6 +179,7 @@ First release.
   draws its own icon, so `--write-icon` produces the `.ico` used to package it.
 - Windows executable built with PyInstaller by GitHub Actions.
 
+[1.2.2]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.2.2
 [1.2.1]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.2.1
 [1.2.0]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.2.0
 [1.1.4]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.1.4
