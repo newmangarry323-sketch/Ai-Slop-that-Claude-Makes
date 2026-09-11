@@ -4,6 +4,26 @@ Every release of Cadence, newest first. The version here is the value of
 `APP_VERSION` in `Cadence.py`, and each release is tagged `cadence-v<version>`
 on the commit that produced its executable.
 
+## 1.1.3
+
+- **Four more themes** — Black, Nord, Gruvbox and Paper join Dark, Light and the
+  two Solarized variants. Eight in total; the status bar item cycles them.
+- **Nine more accent ramps** — Slate, Ocean, Violet, Plum, Ember, Amber, Moss,
+  Crimson and Graphite. Fifteen in total, and they stay independent of the
+  theme, so any accent works with any theme.
+- Fixed: the marks inside the window controls sat slightly off centre. They were
+  text characters, and a glyph is centred by its line box rather than by its
+  ink, so the cross and the dash landed at different heights — and the arrow was
+  not in the interface font at all. They are drawn as shapes now, which centres
+  exactly and looks the same on every machine.
+- `--frameless` opens without the operating system's title bar and window
+  buttons, leaving Cadence's own as the only ones on screen. A page cannot hide
+  the window buttons its browser draws, so this launches the window in kiosk
+  mode instead: the trade is that it fills the display and cannot be dragged or
+  resized.
+- Cadence's own window controls can be switched off under Preferences, for
+  anyone who would rather keep only the ones Windows draws than have both.
+
 ## 1.1.2
 
 - **Closing the window now stops Cadence.** The window is a browser and the
@@ -100,6 +120,7 @@ First release.
   draws its own icon, so `--write-icon` produces the `.ico` used to package it.
 - Windows executable built with PyInstaller by GitHub Actions.
 
+[1.1.3]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.1.3
 [1.1.2]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.1.2
 [1.1.1]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.1.1
 [1.1.0]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.1.0

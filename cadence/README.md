@@ -43,6 +43,7 @@ window.
 | `--no-scan` | Skip the launch scan |
 | `--no-browser` | Start the server only |
 | `--keep-alive` | Keep running after the window is closed |
+| `--frameless` | Open without the OS title bar and window buttons (fills the screen) |
 | `--write-icon [PATH]` | Write the app icon as a multi-resolution `.ico` (10 sizes, 16-256 px) |
 | `--write-png [PATH]` / `--write-svg [PATH]` | Write the icon as PNG or SVG |
 
@@ -174,8 +175,10 @@ another page in your browser cannot read your library through the local port.
 
 ## Themes
 
-Dark, Light, Solarized Dark and Solarized Light, plus six accent ramps (Deep
-Blue, Midnight, Azure, Steel, Indigo, Teal). Theme and accent are independent:
+Eight themes — Dark, Black, Nord, Gruvbox, Solarized Dark, Light, Paper and
+Solarized Light — and fifteen accent ramps: Deep Blue, Midnight, Azure, Steel,
+Indigo, Teal, Slate, Ocean, Violet, Plum, Ember, Amber, Moss, Crimson and
+Graphite. Theme and accent are independent:
 the theme sets the surfaces, the accent tints the status bar, selection, buttons
 and tab markers from one seven-stop ramp. The status bar item on the right
 cycles through the themes.
@@ -185,6 +188,16 @@ cycles through the themes.
 The three dots at the left of the menu bar: red quits Cadence and stops the
 server, green goes full screen, amber leaves it. A web page cannot minimise its
 own window, so the amber control is a restore-down rather than a minimise.
+
+Windows draws its own buttons on the window as well, and **a page cannot hide
+those** — they belong to the browser window, not to the page inside it. Two ways
+out, whichever you prefer:
+
+- `--frameless` launches in kiosk mode, which has no OS title bar or buttons at
+  all, leaving Cadence's as the only ones. It fills the screen and cannot be
+  dragged or resized.
+- Switch **Cadence's own window controls** off under Preferences and keep only
+  the ones Windows draws.
 
 ## Releases
 
