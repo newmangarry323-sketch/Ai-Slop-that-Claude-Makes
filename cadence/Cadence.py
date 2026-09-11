@@ -41,7 +41,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 APP_NAME = "Cadence"
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 DEFAULT_PORT = 8731
 
 # Extensions we will index. The ones we can actually parse tags for are listed
@@ -1657,6 +1657,8 @@ class Server(ThreadingHTTPServer):
         self.clients: dict[str, float] = {}   # window id -> time it stops counting as alive
         self.seen_client = False
         self.browser: subprocess.Popen | None = None
+        self.url = ""
+        self.relaunch_until = 0.0   # while set, a missing window is expected
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1802,7 +1804,7 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/setting":
             key = str(payload.get("key", ""))
             allowed = {"theme", "accent", "sidebar_width", "panel_height", "volume",
-                       "repeat", "shuffle", "columns", "view", "eq"}
+                       "repeat", "shuffle", "columns", "view", "eq", "frameless"}
             if key not in allowed and not key.startswith("pref_"):
                 return self._error(400, "unknown setting")
             library.set_setting(key, str(payload.get("value", "")))
@@ -1844,6 +1846,23 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(result)
         if route == "/api/reveal":
             return self._json(self.reveal(int(payload.get("id", 0))))
+        if route == "/api/window/relaunch":
+            if self.server.browser is None:
+                return self._error(400, "Cadence did not open this window, so it cannot "
+                                        "reopen it - restart Cadence to apply")
+            frameless = bool(payload.get("frameless"))
+            library.set_setting("pref_frameless", "1" if frameless else "0")
+            server = self.server
+            server.relaunch_until = time.time() + 45
+            server.clients.clear()
+
+            def swap() -> None:
+                close_window(server)
+                time.sleep(0.6)
+                open_window(server.url, server, frameless)
+
+            threading.Thread(target=swap, daemon=True).start()
+            return self._json({"ok": True})
         if route == "/api/heartbeat":
             client = str(payload.get("id", ""))[:64]
             if client:
@@ -3623,6 +3642,11 @@ const PREFS = [
   { key: 'compact',    label: 'Compact rows', hint: 'Tighter row height', def: false },
   { key: 'scanlaunch', label: 'Rescan the folder on launch', def: true },
   { key: 'countplays', label: 'Count plays', def: true },
+  { key: 'frameless',  label: 'Hide the Windows title bar and buttons',
+    hint: "Reopens filling the screen, with only Cadence's own controls. "
+          + 'A window cannot hide the buttons its browser draws, so this drops the '
+          + 'frame entirely - the window can no longer be moved or resized.',
+    def: false, relaunch: true },
   { key: 'wincontrols', label: "Cadence's own window controls",
     hint: 'Turn off if you would rather only have the ones Windows draws', def: true },
   { key: 'updates',    label: 'Check for updates',
@@ -4470,7 +4494,13 @@ function wire() {
       return;
     }
     const pref = e.target.closest('[data-pref]');
-    if (pref) { setPref(pref.dataset.pref, pref.checked); return; }
+    if (pref) {
+      const key = pref.dataset.pref;
+      setPref(key, pref.checked);
+      const entry = PREFS.find(p => p.key === key);
+      if (entry && entry.relaunch) relaunchWindow(key, pref.checked);
+      return;
+    }
     const themePick = e.target.closest('[data-theme-pick]');
     if (themePick) { setTheme(themePick.value); return; }
     const accentPick = e.target.closest('[data-accent-pick]');
@@ -4878,6 +4908,20 @@ function startHeartbeat() {
   });
 }
 
+async function relaunchWindow(key, value) {
+  // The frame belongs to the browser window, so changing it means a new window.
+  // The server holds everything that matters, so the page simply comes back.
+  try {
+    await api('/api/window/relaunch', { body: { [key]: value } });
+    clearInterval(heartbeatTimer);
+    document.body.innerHTML =
+      `<div class="empty" style="height:100vh"><h2>Reopening Cadence…</h2>
+       <p>A new window is on its way. You can close this one if it lingers.</p></div>`;
+  } catch (err) {
+    toast(err.message + ' — the choice is saved and applies next time Cadence starts.', 'err');
+  }
+}
+
 function syncWindowControls() {
   // A web page cannot minimise its own window, so the amber control is a
   // restore-down: it leaves full screen, and greys out when there is none.
@@ -5099,6 +5143,8 @@ def watch_windows(server: "Server") -> None:
         time.sleep(2.0)
         now = time.time()
         server.clients = {cid: until for cid, until in server.clients.items() if until > now}
+        if time.time() < server.relaunch_until:
+            continue      # we closed the window ourselves and a new one is on its way
         if server.seen_client and not server.clients:
             log("window closed - stopping")
             server.shutdown()
@@ -5160,6 +5206,10 @@ def main(argv: list[str] | None = None) -> int:
     port = free_port(args.port)
     server = Server(("127.0.0.1", port), Handler, library, token)
     url = f"http://127.0.0.1:{port}/?t={urllib.parse.quote(token)}"
+    server.url = url
+    # A flag only helps someone typing a command; the stored preference is what
+    # a double-clicked shortcut has to go on.
+    frameless = args.frameless or library.get_setting("pref_frameless") == "1"
 
     # The designated folder is pulled in on every launch, in the background so
     # the window opens immediately and fills in as tracks are found.
@@ -5178,7 +5228,7 @@ def main(argv: list[str] | None = None) -> int:
         threading.Thread(target=watch_windows, args=(server,), daemon=True).start()
     log(f"{APP_NAME} {APP_VERSION} listening on {url}")
     if not args.no_browser:
-        threading.Timer(0.4, open_window, args=(url, server, args.frameless)).start()
+        threading.Timer(0.4, open_window, args=(url, server, frameless)).start()
     try:
         while thread.is_alive():
             thread.join(0.5)
