@@ -231,11 +231,14 @@ Windows draws its own buttons on the window as well, and **a page cannot hide
 those** — they belong to the browser window, not to the page inside it. Two ways
 out, whichever you prefer:
 
-- `--frameless` launches in kiosk mode, which has no OS title bar or buttons at
-  all, leaving Cadence's as the only ones. It fills the screen and cannot be
-  dragged or resized.
-- Switch **Cadence's own window controls** off under Preferences and keep only
-  the ones Windows draws.
+- Switch **Hide the Windows title bar and buttons** on under Preferences. The
+  window reopens without a frame, leaving Cadence's controls as the only ones.
+  It fills the screen and cannot be dragged or resized, because dropping the
+  frame is the only way to be rid of the buttons on it. The choice is
+  remembered, so a double-clicked shortcut honours it. `--frameless` does the
+  same from a command line.
+- Or keep a normal window and switch **Cadence's own window controls** off
+  instead, so there is one set of buttons rather than two.
 
 ## Releases
 
