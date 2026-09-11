@@ -4,6 +4,20 @@ Every release of Cadence, newest first. The version here is the value of
 `APP_VERSION` in `Cadence.py`, and each release is tagged `cadence-v<version>`
 on the commit that produced its executable.
 
+## 1.1.2
+
+- **Closing the window now stops Cadence.** The window is a browser and the
+  program behind it is a separate process, and closing the window told that
+  process nothing, so it stayed running with the port held — invisible except
+  in Task Manager, and accumulating one copy per launch. The page now checks in
+  every few seconds and says goodbye on its way out; the program stops a few
+  seconds later. Reloading the page is not a goodbye. Neither is minimising for
+  a long stretch: browsers throttle a hidden window's timers to about one a
+  minute, so the silent grace is longer than that, while a window that closes
+  properly still shuts things down in a few seconds. `--keep-alive` opts out.
+- Quitting from inside Cadence — the red control, or File → Exit — now closes
+  the window it opened as well as stopping the server.
+
 ## 1.1.1
 
 - The running version now shows in the status bar, so which build you are on is
@@ -86,6 +100,7 @@ First release.
   draws its own icon, so `--write-icon` produces the `.ico` used to package it.
 - Windows executable built with PyInstaller by GitHub Actions.
 
+[1.1.2]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.1.2
 [1.1.1]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.1.1
 [1.1.0]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.1.0
 [1.0.1]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.0.1

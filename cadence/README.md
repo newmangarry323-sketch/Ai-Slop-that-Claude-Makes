@@ -26,6 +26,13 @@ It serves a local page on `127.0.0.1` and opens it in a chromeless browser windo
 (Chrome, Edge or Brave in `--app` mode), so it looks like a desktop app rather
 than a tab. If none of those are installed it falls back to your default browser.
 
+Closing the window stops Cadence. The window and the program behind it are
+separate processes, so the page checks in every few seconds and says goodbye on
+its way out; the program exits a moment later. Nothing is left running in the
+background. Reloading the page is not a goodbye, and neither is minimising for a
+long time. `--keep-alive` turns this off if you want the server to outlive its
+window.
+
 ### Options
 
 | Flag | What it does |
@@ -35,6 +42,7 @@ than a tab. If none of those are installed it falls back to your default browser
 | `--rescan` | Re-read every file, ignoring size and timestamp |
 | `--no-scan` | Skip the launch scan |
 | `--no-browser` | Start the server only |
+| `--keep-alive` | Keep running after the window is closed |
 | `--write-icon [PATH]` | Write the app icon as a multi-resolution `.ico` (10 sizes, 16-256 px) |
 | `--write-png [PATH]` / `--write-svg [PATH]` | Write the icon as PNG or SVG |
 
