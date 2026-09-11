@@ -184,6 +184,10 @@ Every version, what changed in it, and the Windows executable built for it:
 [CHANGELOG.md](CHANGELOG.md) ·
 [Releases](https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases)
 
+Putting a new version out is three edited files and a commit —
+[UPDATES.md](UPDATES.md) is the walkthrough, including what the build does,
+what people running Cadence see, and how to fix a release that went out wrong.
+
 ## License
 
 MIT — see [LICENSE](../LICENSE).

@@ -32,9 +32,37 @@ jobs:
         run: pip install --disable-pip-version-check pyinstaller
 
       - name: Sanity-check the source
+        shell: python
         run: |
-          python -c "import ast, pathlib; ast.parse(pathlib.Path('Cadence.py').read_text(encoding='utf-8')); print('parses clean')"
-          python Cadence.py --version
+          import ast, pathlib, re, subprocess, sys
+
+          source = pathlib.Path("Cadence.py").read_text(encoding="utf-8")
+          ast.parse(source)
+          print("Cadence.py parses clean")
+
+          version = re.search(r'^APP_VERSION = "(.+?)"', source, re.M).group(1)
+
+          # The version lives in three places and nothing else keeps them in step:
+          # the program, the Windows version resource, and the changelog.
+          resource = pathlib.Path("version.txt").read_text(encoding="utf-8")
+          expected = version.replace(".", ", ") + ", 0"
+          problems = []
+          if f"filevers=({expected})" not in resource:
+              problems.append(f"version.txt filevers does not match {version}")
+          if f"'{version}.0'" not in resource:
+              problems.append(f"version.txt FileVersion/ProductVersion does not match {version}")
+
+          changelog = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
+          heads = re.findall(r"^## (\d+\.\d+\.\d+)$", changelog, re.M)
+          if not heads or heads[0] != version:
+              problems.append(
+                  f"CHANGELOG.md should open with '## {version}', found "
+                  f"'{heads[0] if heads else 'nothing'}'")
+
+          if problems:
+              print("::error::" + "; ".join(problems))
+              sys.exit(1)
+          print(f"version {version} agrees across Cadence.py, version.txt and CHANGELOG.md")
 
       - name: Generate the icon
         run: python Cadence.py --write-icon Cadence.ico
