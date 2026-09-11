@@ -4,6 +4,15 @@ Every release of Cadence, newest first. The version here is the value of
 `APP_VERSION` in `Cadence.py`, and each release is tagged `cadence-v<version>`
 on the commit that produced its executable.
 
+## 1.2.3
+
+- Fixed: every disclosure chevron pointed the wrong way. They were being rotated
+  in the wrong direction, so a collapsed section pointed up and an expanded one
+  pointed right — neither of which means anything. Collapsed now points right
+  and expanded points down, as everywhere else.
+- **Hide the Windows title bar** is on the View menu as well as in Preferences,
+  since burying it two levels down made it hard to find.
+
 ## 1.2.2
 
 - Fixed: choosing an equalizer preset applied it correctly but then showed
@@ -179,6 +188,7 @@ First release.
   draws its own icon, so `--write-icon` produces the `.ico` used to package it.
 - Windows executable built with PyInstaller by GitHub Actions.
 
+[1.2.3]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.2.3
 [1.2.2]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.2.2
 [1.2.1]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.2.1
 [1.2.0]: https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/cadence-v1.2.0

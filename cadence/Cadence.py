@@ -41,7 +41,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 APP_NAME = "Cadence"
-APP_VERSION = "1.2.2"
+APP_VERSION = "1.2.3"
 DEFAULT_PORT = 8731
 
 # Extensions we will index. The ones we can actually parse tags for are listed
@@ -2239,8 +2239,8 @@ input,select{font:inherit}
 .section>.head{display:flex;align-items:center;gap:4px;height:22px;padding:0 8px;
   font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;cursor:pointer}
 .section>.head:hover{background:var(--bg-hover)}
-.section>.head .chev{transition:transform .12s}
-.section.collapsed>.head .chev{transform:rotate(-90deg)}
+.section>.head .chev{transition:transform .12s;transform:rotate(90deg)}
+.section.collapsed>.head .chev{transform:rotate(0deg)}
 .section.collapsed>.body{display:none}
 .section .count{margin-left:auto;color:var(--fg-faint);font-size:10px;font-family:var(--mono)}
 
@@ -2251,8 +2251,9 @@ input,select{font:inherit}
 .row.on::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--a400)}
 .row .label{overflow:hidden;text-overflow:ellipsis}
 .row .sub{margin-left:auto;color:var(--fg-faint);font-size:10px;font-family:var(--mono);padding-left:8px}
-.row .twist{width:12px;height:12px;flex:0 0 auto;transition:transform .12s;color:var(--fg-muted)}
-.row.closed .twist{transform:rotate(-90deg)}
+.row .twist{width:12px;height:12px;flex:0 0 auto;transition:transform .12s;
+  transform:rotate(90deg);color:var(--fg-muted)}
+.row.closed .twist{transform:rotate(0deg)}
 .row.lvl1{padding-left:20px}
 .row.lvl2{padding-left:36px}
 .row.lvl3{padding-left:52px}
@@ -4237,6 +4238,11 @@ const MENUS = {
     { label: 'Queue', key: 'Ctrl+Shift+Q', act: () => setView('queue') },
     '-',
     { label: 'Toggle Theme', act: () => toggleTheme() },
+    { label: 'Hide the Windows Title Bar', act: () => {
+        const on = !prefOn('frameless');
+        setPref('frameless', on);
+        relaunchWindow('frameless', on);
+      } },
     { label: 'Preferences…', act: () => openPrefs() },
     { label: 'All Settings', act: () => openSettingsTab() },
   ],
