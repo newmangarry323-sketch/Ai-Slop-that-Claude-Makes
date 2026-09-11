@@ -35,11 +35,15 @@ than a tab. If none of those are installed it falls back to your default browser
 | `--rescan` | Re-read every file, ignoring size and timestamp |
 | `--no-scan` | Skip the launch scan |
 | `--no-browser` | Start the server only |
-| `--write-icon [PATH]` | Write the app icon as a multi-resolution `.ico` (16-256 px) |
+| `--write-icon [PATH]` | Write the app icon as a multi-resolution `.ico` (10 sizes, 16-256 px) |
 | `--write-png [PATH]` / `--write-svg [PATH]` | Write the icon as PNG or SVG |
 
 `Cadence.ico` is checked in, but `Cadence.py` draws it from the same geometry as
-`Cadence.svg`, so `--write-icon` reproduces it byte for byte at any time.
+`Cadence.svg`, so `--write-icon` reproduces it byte for byte at any time. It stores
+16, 20, 24, 32, 40, 48, 64, 96, 128 and 256 px — the sizes the Windows shell asks
+for across its DPI scalings, so it never has to downsample a larger entry. 256 px
+is the format's ceiling: an ICO directory entry holds the width in a single byte.
+`--write-png` writes 1024 px for anywhere that is not Windows.
 
 ## Building `Cadence.exe`
 

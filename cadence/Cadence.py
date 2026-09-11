@@ -40,7 +40,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 APP_NAME = "Cadence"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 DEFAULT_PORT = 8731
 
 # Extensions we will index. The ones we can actually parse tags for are listed
@@ -1272,6 +1272,9 @@ def render_icon(size: int) -> bytearray:
                         _blend(pixel, (0x2f, 0x6f, 0xae), min(1.0, ring) * 0.35)
 
                 for (bx, by, bw, bh) in (_ICON_BARS_SMALL if size <= 24 else _ICON_BARS):
+                    if not (bx - feather <= px <= bx + bw + feather
+                            and by - feather <= py <= by + bh + feather):
+                        continue
                     cover = _rounded_rect_coverage(px, py, bx, by, bw, bh, bw / 2.0, feather)
                     if cover > 0.0:
                         t = min(1.0, max(0.0, (py - 56.0) / 144.0))
@@ -1280,9 +1283,11 @@ def render_icon(size: int) -> bytearray:
                                        0xff + (0xc4 - 0xff) * t), cover)
 
                 bx, by, bw, bh = _ICON_BASELINE_SMALL if size <= 24 else _ICON_BASELINE
-                cover = _rounded_rect_coverage(px, py, bx, by, bw, bh, bh / 2.0, feather)
-                if cover > 0.0:
-                    _blend(pixel, (0x7f, 0xc9, 0xff), cover)
+                if (bx - feather <= px <= bx + bw + feather
+                        and by - feather <= py <= by + bh + feather):
+                    cover = _rounded_rect_coverage(px, py, bx, by, bw, bh, bh / 2.0, feather)
+                    if cover > 0.0:
+                        _blend(pixel, (0x7f, 0xc9, 0xff), cover)
 
             offset = (row * size + col) * 4
             pixels[offset] = int(max(0.0, min(255.0, pixel[0])))
@@ -1325,13 +1330,22 @@ def bmp_bytes(size: int, rgba: bytearray) -> bytes:
     return header + bytes(body) + bytes(mask)
 
 
-def build_ico(path: str, sizes: tuple[int, ...] = (16, 24, 32, 48, 64, 128, 256)) -> str:
+# 16 and 32 are the classic list and desktop sizes; 20, 40 and 96 are what the
+# shell asks for at 125%, 150% and 200% scaling; 48, 64, 128 and 256 cover the
+# larger icon views. 256 is the ceiling: an ICO directory entry stores width in
+# a single byte, where 0 means 256, so nothing above that is representable.
+ICO_SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
+ICO_PNG_FROM = 64
+
+
+def build_ico(path: str, sizes: tuple[int, ...] = ICO_SIZES) -> str:
     images: list[tuple[int, bytes]] = []
     for size in sizes:
         rgba = render_icon(size)
         # Small entries stay as DIBs for maximum compatibility with older
         # shells; the big ones use PNG so the file does not balloon.
-        images.append((size, png_bytes(size, rgba) if size >= 128 else bmp_bytes(size, rgba)))
+        images.append((size, png_bytes(size, rgba) if size >= ICO_PNG_FROM
+                       else bmp_bytes(size, rgba)))
 
     offset = 6 + 16 * len(images)
     directory = bytearray(struct.pack("<HHH", 0, 1, len(images)))
@@ -1346,7 +1360,7 @@ def build_ico(path: str, sizes: tuple[int, ...] = (16, 24, 32, 48, 64, 128, 256)
     return path
 
 
-def build_png(path: str, size: int = 512) -> str:
+def build_png(path: str, size: int = 1024) -> str:
     with open(path, "wb") as fh:
         fh.write(png_bytes(size, render_icon(size)))
     return path
