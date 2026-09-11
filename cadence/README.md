@@ -250,12 +250,6 @@ Putting a new version out is three edited files and a commit —
 [UPDATES.md](UPDATES.md) is the walkthrough, including what the build does,
 what people running Cadence see, and how to fix a release that went out wrong.
 
-## Elsewhere
-
-[`docs/discord-post.md`](docs/discord-post.md) is the write-up used to share
-Cadence in Anthropic's Built With Claude channel, kept here so the description
-and the project stay in step.
-
 ## License
 
 MIT — see [LICENSE](../LICENSE).
