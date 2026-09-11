@@ -132,6 +132,12 @@ Teal) under **Settings**. The whole interface is tinted from one seven-stop ramp
 so an accent change recolours the status bar, selection, buttons and tab markers
 together.
 
+## Releases
+
+Every version, what changed in it, and the Windows executable built for it:
+[CHANGELOG.md](CHANGELOG.md) ·
+[Releases](https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases)
+
 ## License
 
 MIT — see [LICENSE](../LICENSE).

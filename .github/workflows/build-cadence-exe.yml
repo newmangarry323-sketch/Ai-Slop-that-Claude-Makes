@@ -69,6 +69,78 @@ jobs:
           $global:LASTEXITCODE = 0
           exit 0
 
+      - name: Compose release notes from the changelog
+        if: github.ref_type == 'tag' || contains(github.event.head_commit.message, '[release]')
+        shell: python
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          import os, pathlib, re
+
+          # One source of truth. Every release body is built from CHANGELOG.md and
+          # links to the release before it, so the set reads as one app's history
+          # rather than a pile of separate downloads.
+          repo = os.environ["REPO"]
+          text = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
+          parts = re.split(r"^## (\d+\.\d+\.\d+)\s*$", text, flags=re.M)[1:]
+          entries = list(zip(parts[0::2], parts[1::2]))
+          if not entries:
+              raise SystemExit("no version sections found in CHANGELOG.md")
+
+          preamble = (
+              "Cadence is a music manager for a local library, with an interface "
+              "modelled on VS Code. Point it at one folder; it indexes that folder "
+              "and everything beneath it on every launch.\n"
+          )
+          install = "\n".join([
+              "### Download",
+              "",
+              "**`Cadence.exe`** - self-contained, no Python needed. Windows 64-bit.",
+              "",
+              "Windows SmartScreen warns on first run because the executable is not",
+              "code-signed: choose **More info** then **Run anyway**.",
+              "",
+              "On first launch it asks for your music folder, or pass it directly:",
+              "",
+              "```",
+              'Cadence.exe --folder "D:\\Music"',
+              "```",
+              "",
+              "### From source",
+              "",
+              "`cadence/Cadence.py` is the whole program - one file, standard library",
+              "only, no `pip install`:",
+              "",
+              "```",
+              'python Cadence.py --folder "D:\\Music"',
+              "```",
+              "",
+              "Your audio files are opened read-only. The index and playlists live in",
+              "`%APPDATA%\\Cadence`.",
+          ])
+
+          out = pathlib.Path("notes")
+          out.mkdir(exist_ok=True)
+          for index, (version, body) in enumerate(entries):
+              tag = "cadence-v" + version
+              older = entries[index + 1][0] if index + 1 < len(entries) else None
+              chunks = [preamble, "## What changed", body, "---", install]
+              if older:
+                  chunks.append(
+                      "**Full changelog:** [`cadence-v%s...%s`]"
+                      "(https://github.com/%s/compare/cadence-v%s...%s)  \n"
+                      "**Previous release:** [Cadence %s]"
+                      "(https://github.com/%s/releases/tag/cadence-v%s)"
+                      % (older, tag, repo, older, tag, older, repo, older))
+              else:
+                  chunks.append("First release - no earlier version to compare against.")
+              chunks.append(
+                  "**Every version:** [CHANGELOG.md]"
+                  "(https://github.com/%s/blob/%s/cadence/CHANGELOG.md)" % (repo, tag))
+              page = "\n\n".join(c.strip() for c in chunks if c.strip()) + "\n"
+              (out / (version + ".md")).write_text(page, encoding="utf-8")
+              print("composed %s%s" % (tag, " (follows %s)" % older if older else ""))
+
       - name: Build the one-file executable
         run: >
           pyinstaller --onefile --noconsole
@@ -104,45 +176,28 @@ jobs:
           files: |
             cadence/dist/Cadence.exe
             cadence/Cadence.ico
-          body: |
-            A music manager for a local library, with an interface modelled on
-            VS Code. Point it at one folder; it indexes that folder and
-            everything beneath it on every launch.
+          body_path: cadence/notes/${{ steps.meta.outputs.version }}.md
 
-            ## Download
-
-            **`Cadence.exe`** — self-contained, no Python needed. Windows 64-bit.
-
-            Windows SmartScreen will warn on first run because the executable is
-            not code-signed: choose **More info** then **Run anyway**.
-
-            On first launch it asks you to pick your music folder. After that it
-            rescans on every start, re-reading only the files whose size or
-            timestamp changed, so start-up stays fast. You can also pass the
-            folder directly:
-
-            ```
-            Cadence.exe --folder "D:\Music"
-            ```
-
-            It opens in a chromeless Chrome, Edge or Brave window, falling back
-            to your default browser if none of those are installed.
-
-            ## Also runs from source
-
-            `cadence/Cadence.py` is the whole program — one file, standard
-            library only, no `pip install`:
-
-            ```
-            python Cadence.py --folder "D:\Music"
-            ```
-
-            ## What it reads
-
-            Tags are parsed in-process for MP3 (ID3v2.2/2.3/2.4 and ID3v1),
-            FLAC, Ogg Vorbis, Opus, MP4/M4A, WAV and AIFF, including embedded
-            cover art. Playback uses the browser's audio engine, which covers
-            MP3, WAV, FLAC, M4A/AAC, Ogg and Opus.
-
-            Your audio files are opened read-only — no tags written, nothing
-            renamed or moved. The index and playlists live in `%APPDATA%\Cadence`.
+      - name: Re-link the earlier releases
+        if: github.ref_type == 'tag' || contains(github.event.head_commit.message, '[release]')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Earlier releases were published before later versions existed, so their
+          # notes cannot name what follows. Rewrite them from the same changelog.
+          Get-ChildItem notes/*.md | ForEach-Object {
+            $version = $_.BaseName
+            if ($version -ne '${{ steps.meta.outputs.version }}') {
+              $tag = "cadence-v$version"
+              gh release view $tag --json tagName *> $null
+              if ($LASTEXITCODE -eq 0) {
+                gh release edit $tag --notes-file $_.FullName
+                Write-Host "refreshed notes for $tag"
+              } else {
+                Write-Host "no release for $tag, skipping"
+              }
+            }
+          }
+          $global:LASTEXITCODE = 0
+          exit 0
