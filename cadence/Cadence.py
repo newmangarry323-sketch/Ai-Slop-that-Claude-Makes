@@ -41,7 +41,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 APP_NAME = "Cadence"
-APP_VERSION = "1.2.4"
+APP_VERSION = "1.3.0"
 DEFAULT_PORT = 8731
 
 # Extensions we will index. The ones we can actually parse tags for are listed
@@ -64,6 +64,14 @@ SKIP_DIRS = {
 MAX_ART_BYTES = 6 * 1024 * 1024
 
 
+def is_frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def running_exe() -> str:
+    return os.path.abspath(sys.executable if is_frozen() else sys.argv[0])
+
+
 def log(*parts: object) -> None:
     """Print only when a console exists (PyInstaller --noconsole leaves stdout as None)."""
     if sys.stdout is None:
@@ -74,7 +82,32 @@ def log(*parts: object) -> None:
         pass
 
 
+PORTABLE_MARKER = "cadence-portable.txt"
+_PORTABLE: bool | None = None
+
+
+def portable_dir() -> str | None:
+    """Where a portable install keeps its index, or None if this is not one.
+
+    Portable means "everything beside the program". It is on when --portable is
+    passed, when CADENCE_PORTABLE is set, or when a file named
+    cadence-portable.txt sits next to the executable - the last of which is what
+    makes a USB stick work without anyone typing a flag.
+    """
+    if _PORTABLE is False:
+        return None
+    beside = os.path.dirname(running_exe())
+    if _PORTABLE or os.environ.get("CADENCE_PORTABLE") or \
+            os.path.isfile(os.path.join(beside, PORTABLE_MARKER)):
+        return os.path.join(beside, f"{APP_NAME}-data")
+    return None
+
+
 def config_dir() -> str:
+    portable = portable_dir()
+    if portable:
+        os.makedirs(portable, exist_ok=True)
+        return portable
     if sys.platform == "win32":
         base = os.environ.get("APPDATA") or os.path.expanduser("~")
         path = os.path.join(base, APP_NAME)
@@ -803,6 +836,152 @@ def _extended_float(raw: bytes) -> float:
         return 0.0
 
 
+# ---------------------------------------------------------------------------
+# Writing tags
+#
+# Cadence otherwise only reads. Writing is opt-in, one file at a time, and never
+# edits in place: a complete new file is built next to the original and moved
+# over it once it is whole, so an interrupted write leaves the original intact.
+# Only the tag block is rewritten - the audio frames are copied through byte for
+# byte, so a failed parse can never damage the music itself.
+# ---------------------------------------------------------------------------
+
+# Only formats with a writer below. Ogg/Opus and MP4 are read-only for now.
+WRITABLE_EXTS = {".mp3", ".flac"}
+
+_ID3_WRITE = {"title": "TIT2", "artist": "TPE1", "album": "TALB",
+              "albumartist": "TPE2", "genre": "TCON", "year": "TDRC",
+              "track": "TRCK", "disc": "TPOS", "composer": "TCOM"}
+
+
+def _synchsafe_bytes(n: int) -> bytes:
+    return bytes(((n >> 21) & 0x7F, (n >> 14) & 0x7F, (n >> 7) & 0x7F, n & 0x7F))
+
+
+def _id3_frame(frame_id: str, text: str) -> bytes:
+    payload = b"\x03" + text.encode("utf-8")      # 0x03 = UTF-8
+    return frame_id.encode("ascii") + _synchsafe_bytes(len(payload)) + b"\x00\x00" + payload
+
+
+def build_id3(tags: dict, keep_frames: bytes = b"") -> bytes:
+    frames = b"".join(_id3_frame(_ID3_WRITE[key], str(value))
+                      for key, value in tags.items()
+                      if key in _ID3_WRITE and str(value).strip() != "")
+    body = keep_frames + frames + b"\x00" * 256      # padding, so small edits can grow
+    return b"ID3\x04\x00\x00" + _synchsafe_bytes(len(body)) + body
+
+
+def _existing_id3_size(fh: io.BufferedReader) -> int:
+    fh.seek(0)
+    header = fh.read(10)
+    if len(header) < 10 or header[:3] != b"ID3":
+        return 0
+    return 10 + ((header[6] << 21) | (header[7] << 14) | (header[8] << 7) | header[9])
+
+
+def _keep_id3_pictures(path: str) -> bytes:
+    """Carry the artwork frames across; we only rewrite the text ones."""
+    try:
+        with open(path, "rb") as fh:
+            tags, _ = _read_id3v2(fh)
+        art = tags.get("_art")
+        if not art:
+            return b""
+        mime, data = art
+        payload = (b"\x03" + mime.encode("latin-1", "replace") + b"\x00"
+                   + b"\x03" + b"Cover\x00" + data)
+        return b"APIC" + _synchsafe_bytes(len(payload)) + b"\x00\x00" + payload
+    except Exception:
+        return b""
+
+
+def write_mp3_tags(path: str, tags: dict) -> None:
+    keep = _keep_id3_pictures(path)
+    with open(path, "rb") as fh:
+        skip = _existing_id3_size(fh)
+        fh.seek(skip)
+        audio = fh.read()
+    _replace_atomically(path, build_id3(tags, keep) + audio)
+
+
+def _vorbis_block(tags: dict) -> bytes:
+    vendor = b"Cadence"
+    pairs = []
+    for key, name in (("title", "TITLE"), ("artist", "ARTIST"), ("album", "ALBUM"),
+                      ("albumartist", "ALBUMARTIST"), ("genre", "GENRE"),
+                      ("year", "DATE"), ("track", "TRACKNUMBER"),
+                      ("disc", "DISCNUMBER"), ("composer", "COMPOSER")):
+        value = str(tags.get(key, "")).strip()
+        if value:
+            pairs.append(f"{name}={value}".encode("utf-8"))
+    out = struct.pack("<I", len(vendor)) + vendor + struct.pack("<I", len(pairs))
+    for entry in pairs:
+        out += struct.pack("<I", len(entry)) + entry
+    return out
+
+
+def write_flac_tags(path: str, tags: dict) -> None:
+    with open(path, "rb") as fh:
+        if fh.read(4) != b"fLaC":
+            raise ValueError("not a FLAC file")
+        blocks = []
+        while True:
+            header = fh.read(4)
+            if len(header) < 4:
+                raise ValueError("truncated FLAC metadata")
+            last, kind = header[0] & 0x80, header[0] & 0x7F
+            length = int.from_bytes(header[1:4], "big")
+            body = fh.read(length)
+            if kind != 4:                     # drop the old VORBIS_COMMENT only
+                blocks.append((kind, body))
+            if last:
+                break
+        audio = fh.read()
+
+    blocks.append((4, _vorbis_block(tags)))
+    blocks.sort(key=lambda b: 0 if b[0] == 0 else 1)   # STREAMINFO must come first
+    out = bytearray(b"fLaC")
+    for index, (kind, body) in enumerate(blocks):
+        flag = 0x80 if index == len(blocks) - 1 else 0
+        out += bytes((flag | kind,)) + len(body).to_bytes(3, "big") + body
+    _replace_atomically(path, bytes(out) + audio)
+
+
+def _replace_atomically(path: str, data: bytes) -> None:
+    """Write beside the original, then move it into place in one step."""
+    folder = os.path.dirname(path) or "."
+    handle, temp = None, None
+    try:
+        import tempfile
+        fd, temp = tempfile.mkstemp(dir=folder, prefix=".cadence-", suffix=".tmp")
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        # Keep the original's timestamps notion of "changed" honest: the scan
+        # picks the file up again because size or mtime moved.
+        shutil.copystat(path, temp)
+        os.replace(temp, path)
+        temp = None
+    finally:
+        if temp and os.path.exists(temp):
+            os.remove(temp)
+
+
+TAG_FIELDS = ("title", "artist", "album", "albumartist", "genre",
+              "composer", "year", "track", "disc")
+
+
+def write_tags(path: str, tags: dict) -> None:
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".mp3":
+        write_mp3_tags(path, tags)
+    elif ext == ".flac":
+        write_flac_tags(path, tags)
+    else:
+        raise ValueError(f"Cadence cannot write tags to {ext or 'this file'} yet")
+
+
 _READERS = {
     ".mp3": read_mp3, ".mp2": read_mp3,
     ".flac": read_flac,
@@ -935,7 +1114,7 @@ CREATE TABLE IF NOT EXISTS settings (
 
 TRACK_COLUMNS = (
     "id, path, folder, filename, size, title, artist, album, albumartist, genre, "
-    "year, track, disc, duration, bitrate, samplerate, channels, codec, "
+    "composer, year, track, disc, duration, bitrate, samplerate, channels, codec, "
     "(art IS NOT NULL) AS has_art, added, plays, last_played, rating"
 )
 
@@ -1165,6 +1344,55 @@ class Library:
                 """, batch)
             conn.commit()
 
+    def fingerprint(self, root: str) -> tuple[int, float]:
+        """A cheap summary of the folder tree: how many audio files, newest mtime.
+
+        Reading directory entries is far cheaper than parsing tags, so the
+        watcher can check this every few seconds and only start a real scan when
+        something has actually changed.
+        """
+        count = 0
+        newest = 0.0
+        for path in self.walk(root):
+            try:
+                stat = os.stat(path)
+            except OSError:
+                continue
+            count += 1
+            newest = max(newest, stat.st_mtime)
+        return count, newest
+
+    def watch(self, root_of, interval: float = 6.0) -> None:
+        """Rescan when the folder changes, instead of only at launch.
+
+        The baseline is taken straight away rather than after the first wait:
+        sleeping first would fold anything that changed during that wait into
+        the baseline, and those changes would then never register as changes.
+        """
+        last: tuple[int, float] | None = None
+        while True:
+            root = root_of()
+            if root and os.path.isdir(root):
+                try:
+                    now = self.fingerprint(root)
+                except Exception:
+                    now = None
+                if now is not None:
+                    if last is not None and now != last and not self.scan_state["running"]:
+                        self._note(f"Folder changed ({now[0] - last[0]:+d} file(s)) - rescanning")
+                        self.scan(root)
+                        # Re-read afterwards so anything that landed while the
+                        # scan ran is noticed on the next pass rather than lost.
+                        try:
+                            now = self.fingerprint(root)
+                        except Exception:
+                            pass
+                    last = now
+            time.sleep(interval)
+
+    def watch_async(self, root_of, interval: float = 6.0) -> None:
+        threading.Thread(target=self.watch, args=(root_of, interval), daemon=True).start()
+
     def scan_async(self, root: str, full: bool = False) -> None:
         if self.scan_state["running"]:
             return
@@ -1227,6 +1455,44 @@ class Library:
             conn = self.connect()
             conn.execute("UPDATE tracks SET rating=? WHERE id=?", (max(0, min(5, rating)), track_id))
             conn.commit()
+
+    def retag(self, track_id: int, edits: dict) -> dict:
+        """Write tags into the file itself, then bring the row back in line.
+
+        The file is the source of truth: we write, re-read it, and store what
+        came back, so the index can never claim a tag the file does not have.
+        """
+        row = self.track(track_id)
+        if not row:
+            raise ValueError("That track is no longer in the library")
+        path = row["path"]
+        if not os.path.isfile(path):
+            raise ValueError(f"File is missing: {path}")
+        ext = os.path.splitext(path)[1].lower()
+        if ext not in WRITABLE_EXTS:
+            raise ValueError(f"Cadence cannot write tags to {ext or 'this file'} yet - "
+                             "MP3 and FLAC only, for now")
+        merged = {field: row.get(field) for field in TAG_FIELDS}
+        for field in TAG_FIELDS:
+            if field in edits:
+                merged[field] = edits[field]
+        write_tags(path, merged)
+        fresh = read_metadata(path, self.get_setting("music_folder") or None)
+        if "title" not in fresh:      # only a video sentinel comes back like this
+            raise ValueError("The file no longer reads as audio after writing")
+        with self._write_lock:
+            conn = self.connect()
+            conn.execute(
+                "UPDATE tracks SET size=?, mtime=?, title=?, artist=?, album=?, "
+                "albumartist=?, genre=?, composer=?, year=?, track=?, disc=? WHERE id=?",
+                (os.path.getsize(path), os.path.getmtime(path),
+                 fresh["title"], fresh["artist"], fresh["album"], fresh["albumartist"],
+                 fresh["genre"], fresh["composer"], fresh["year"], fresh["track"],
+                 fresh["disc"], track_id))
+            conn.commit()
+        updated = self.connect().execute(
+            f"SELECT {TRACK_COLUMNS} FROM tracks WHERE id=?", (track_id,)).fetchone()
+        return dict(updated)
 
     # -- playlists ----------------------------------------------------------
 
@@ -1549,14 +1815,6 @@ def version_tuple(text: str) -> tuple:
     return tuple(int(part) for part in re.findall(r"\d+", str(text))[:4]) or (0,)
 
 
-def is_frozen() -> bool:
-    return bool(getattr(sys, "frozen", False))
-
-
-def running_exe() -> str:
-    return os.path.abspath(sys.executable if is_frozen() else sys.argv[0])
-
-
 def check_for_update(library: "Library", use_cache: bool = True) -> dict:
     cached = library.get_setting("update_cache")
     if use_cache and cached:
@@ -1848,10 +2106,31 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/rating":
             library.set_rating(self._int(payload.get("id")), self._int(payload.get("rating")))
             return self._json({"ok": True})
+        if route == "/api/tags":
+            edits = payload.get("tags")
+            if not isinstance(edits, dict):
+                return self._error(400, "no tags given")
+            clean = {}
+            for field in TAG_FIELDS:
+                if field not in edits:
+                    continue
+                value = edits[field]
+                if field in ("year", "track", "disc"):
+                    clean[field] = self._int(value)
+                else:
+                    clean[field] = _clean(value)[:300]
+            try:
+                updated = library.retag(self._int(payload.get("id")), clean)
+            except ValueError as problem:
+                return self._error(400, str(problem))
+            except OSError as problem:
+                return self._error(400, f"Could not write the file: {problem}")
+            return self._json({"track": updated})
         if route == "/api/setting":
             key = str(payload.get("key", ""))
             allowed = {"theme", "accent", "sidebar_width", "panel_height", "volume",
-                       "repeat", "shuffle", "columns", "view", "eq", "frameless"}
+                       "repeat", "shuffle", "columns", "view", "eq", "frameless",
+                       "smartlists", "crossfade"}
             if key not in allowed and not key.startswith("pref_"):
                 return self._error(400, "unknown setting")
             library.set_setting(key, str(payload.get("value", "")))
@@ -1943,6 +2222,8 @@ class Handler(BaseHTTPRequestHandler):
             "platform": sys.platform,
             "home": os.path.expanduser("~"),
             "db": library.db_path,
+            "portable": bool(portable_dir()),
+            "frozen": is_frozen(),
         }
 
     def browse(self, path: str) -> dict:
@@ -2465,6 +2746,11 @@ input,select{font:inherit}
   padding:5px 8px;border-radius:3px;outline:none}
 .field input:focus,.field select:focus{border-color:var(--a400)}
 .field .hint{font-size:11px;color:var(--fg-faint)}
+#modal-body .hint{font-size:11px;color:var(--fg-faint);line-height:1.6;margin:6px 0}
+/* Nine tag fields stacked would need scrolling; two columns keep them all in view. */
+.taggrid{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+.taggrid .wide{grid-column:1 / -1}
+@media (max-width:620px){.taggrid{grid-template-columns:1fr}}
 .crumbbar{display:flex;align-items:center;gap:3px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;
   padding:5px 7px;background:var(--bg-editor);border:1px solid var(--border);border-radius:3px;margin-bottom:10px}
 .crumbbar button{color:var(--a300);padding:1px 3px;border-radius:3px}
@@ -2476,6 +2762,14 @@ input,select{font:inherit}
 .stats div{background:var(--bg-editor);padding:9px 12px}
 .stats b{display:block;font-size:17px;font-weight:500;color:var(--fg-strong);font-family:var(--mono)}
 .stats span{font-size:11px;color:var(--fg-muted);text-transform:uppercase;letter-spacing:.4px}
+.rule{display:grid;grid-template-columns:1fr 1fr 1.2fr 24px;gap:6px;margin-bottom:5px;
+  align-items:center}
+.rule select,.rule input{background:var(--bg-input);color:var(--fg);border:1px solid var(--border);
+  border-radius:3px;padding:3px 6px;font-size:12px;outline:none;min-width:0}
+.rule select:focus,.rule input:focus{border-color:var(--a400)}
+.rule input[disabled]{opacity:.45}
+.rule-x{display:grid;place-items:center;color:var(--fg-muted);border-radius:3px;height:24px}
+.rule-x:hover{background:var(--bg-hover);color:var(--err)}
 .checks{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:2px 10px}
 .checks label{display:flex;align-items:center;gap:7px;padding:3px 5px;border-radius:3px;
   cursor:pointer;font-size:12px;text-transform:none;letter-spacing:0;color:var(--fg)}
@@ -2706,6 +3000,7 @@ const state = {
   byId: new Map(),
   playlists: [],
   localPlaylists: [],
+  smartLists: [],
   byPath: new Map(),
   tabs: [],
   activeTab: null,
@@ -2730,6 +3025,12 @@ const player = {
 };
 
 const audio = $('#audio');
+// A second element so the next track can be loaded and started before the
+// current one finishes. One element alone cannot do that: changing its src
+// tears down what is playing, which is exactly the gap we are removing.
+const audioB = document.createElement('audio');
+audioB.preload = 'auto';
+document.body.appendChild(audioB);
 
 /* ---------- helpers ---------- */
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g,
@@ -2771,6 +3072,84 @@ async function api(path, options) {
   if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
   return data;
 }
+/* ---------- smart playlists ---------- */
+// A saved set of rules rather than a saved set of tracks, so the list keeps
+// itself current as the library changes. Stored server-side beside the others.
+const SMART_FIELDS = [
+  { key: 'artist', label: 'Artist', type: 'text' },
+  { key: 'albumartist', label: 'Album artist', type: 'text' },
+  { key: 'album', label: 'Album', type: 'text' },
+  { key: 'title', label: 'Title', type: 'text' },
+  { key: 'genre', label: 'Genre', type: 'text' },
+  { key: 'composer', label: 'Composer', type: 'text' },
+  { key: 'codec', label: 'Format', type: 'text' },
+  { key: 'path', label: 'File path', type: 'text' },
+  { key: 'year', label: 'Year', type: 'number' },
+  { key: 'duration', label: 'Length (seconds)', type: 'number' },
+  { key: 'plays', label: 'Play count', type: 'number' },
+  { key: 'track', label: 'Track number', type: 'number' },
+  { key: 'size', label: 'File size (bytes)', type: 'number' },
+];
+const SMART_OPS = {
+  text: [['contains', 'contains'], ['is', 'is'], ['isnot', 'is not'],
+         ['starts', 'starts with'], ['ends', 'ends with'], ['empty', 'is empty']],
+  number: [['gt', 'is more than'], ['lt', 'is less than'], ['eq', 'equals'],
+           ['ne', 'does not equal']],
+};
+
+function smartMatch(track, rule) {
+  const field = SMART_FIELDS.find(f => f.key === rule.field);
+  if (!field) return true;
+  if (field.type === 'number') {
+    const left = Number(track[rule.field]) || 0;
+    const right = Number(rule.value) || 0;
+    switch (rule.op) {
+      case 'gt': return left > right;
+      case 'lt': return left < right;
+      case 'eq': return left === right;
+      case 'ne': return left !== right;
+      default:   return true;
+    }
+  }
+  const left = String(track[rule.field] == null ? '' : track[rule.field]).toLowerCase();
+  const right = String(rule.value == null ? '' : rule.value).toLowerCase();
+  switch (rule.op) {
+    case 'contains': return left.includes(right);
+    case 'is':       return left === right;
+    case 'isnot':    return left !== right;
+    case 'starts':   return left.startsWith(right);
+    case 'ends':     return left.endsWith(right);
+    case 'empty':    return left === '';
+    default:         return true;
+  }
+}
+
+function smartTracks(list) {
+  if (!list) return [];
+  const rules = (list.rules || []).filter(r => r && r.field);
+  let found = state.tracks.filter(track => rules.length === 0 ? true
+    : (list.match === 'any' ? rules.some(r => smartMatch(track, r))
+                            : rules.every(r => smartMatch(track, r))));
+  if (list.sort && list.sort !== 'default') {
+    const numeric = (SMART_FIELDS.find(f => f.key === list.sort) || {}).type === 'number'
+                    || list.sort === 'added';
+    found = found.slice().sort((a, b) => {
+      const x = numeric ? (a[list.sort] || 0) : String(a[list.sort] || '').toLowerCase();
+      const y = numeric ? (b[list.sort] || 0) : String(b[list.sort] || '').toLowerCase();
+      return (x < y ? -1 : x > y ? 1 : 0) * (list.desc ? -1 : 1);
+    });
+  }
+  return list.limit > 0 ? found.slice(0, list.limit) : found;
+}
+
+const smartList = id => state.smartLists.find(s => s.id === id);
+
+function saveSmartLists() {
+  return api('/api/setting', { body: { key: 'smartlists',
+                                       value: JSON.stringify(state.smartLists) } })
+    .catch(err => toast('Could not save: ' + err.message, 'err'));
+}
+
 /* ---------- playlists kept in this browser ---------- */
 // These never reach library.db. They live in the browser's own storage, so they
 // stay on this machine and survive the index being deleted or rebuilt. Tracks
@@ -2858,6 +3237,7 @@ const COLUMNS = [
   { key: 'album',       label: 'Album',        width: 'minmax(100px,2fr)' },
   { key: 'albumartist', label: 'Album artist', width: 'minmax(100px,2fr)' },
   { key: 'genre',       label: 'Genre',        width: 'minmax(70px,1fr)' },
+  { key: 'composer',    label: 'Composer',     width: 'minmax(90px,2fr)' },
   { key: 'track',       label: 'Track',        width: '58px',   cls: 'year', numeric: true },
   { key: 'year',        label: 'Year',         width: '54px',   cls: 'year', numeric: true },
   { key: 'codec',       label: 'Format',       width: '74px' },
@@ -2951,6 +3331,7 @@ function tracksForTab(tab) {
       return list;  // playlist order is meaningful, never re-sorted by default
     }
     case 'localplaylist': return localTracks(localPlaylist(tab.value));
+    case 'smart':    return smartTracks(smartList(tab.value));
     case 'search':   list = matchTracks(tab.value); break;
     case 'queue':    return player.queue.map(id => state.byId.get(id)).filter(Boolean);
     default:         list = [];
@@ -3041,6 +3422,11 @@ function emptyHtml(tab) {
       <p>Nothing in the library matches <code>${esc(tab.value)}</code>. Try fewer words —
       search looks at title, artist, album, genre and filename.</p>`;
   }
+  if (tab.kind === 'smart') {
+    return `${icon('sliders')}<h2>Nothing matches</h2>
+      <p>No track in the library satisfies these rules. Right-click the playlist
+      and choose <b>Edit rules…</b> to loosen them.</p>`;
+  }
   if (tab.kind === 'localplaylist') {
     const playlist = localPlaylist(tab.value);
     const missing = localMissing(playlist);
@@ -3125,6 +3511,7 @@ function renderSide() {
   } else if (state.view === 'playlists') {
     heading.textContent = 'Playlists';
     addAction('plus', 'New playlist', 'new-playlist');
+    addAction('sliders', 'New smart playlist', 'new-smart');
     const shared = state.playlists.map(p => `
       <div class="row lvl1 ${state.activeTab === 'pl:' + p.id ? 'on' : ''}"
            data-open="playlist" data-value="${p.id}"
@@ -3146,9 +3533,18 @@ function renderSide() {
         ${rows || `<div style="padding:10px 12px;color:var(--fg-faint);font-size:11px;
                      line-height:1.7">${note}</div>`}
       </div></div>`;
+    const smart = state.smartLists.map(s => `
+      <div class="row lvl1 ${state.activeTab === 'sm:' + s.id ? 'on' : ''}"
+           data-open="smart" data-value="${esc(s.id)}"
+           data-ctx="smart" data-name="${esc(s.name)}" title="${esc(s.name)}">
+        ${icon('sliders')}<span class="label">${esc(s.name)}</span>
+        <span class="sub">${smartTracks(s).length}</span></div>`).join('');
     body.innerHTML =
       section('pl-shared', 'In the library', shared,
               'None yet. Select tracks, right-click, then Add to Playlist.') +
+      section('pl-smart', 'Smart', smart,
+              'A smart playlist is a set of rules rather than a fixed list, so it ' +
+              'keeps itself up to date. Use the + button above.') +
       section('pl-local', 'On this computer', local,
               'None yet. These are kept by this browser rather than in the library ' +
               'index, so they stay on this machine and outlive the index.');
@@ -3414,10 +3810,17 @@ function playAt(pos) {
   if (!track) return next();
   player.current = track;
   eqEnsure();
-  audio.src = streamUrl(track.id);
-  audio.play().catch(err => {
+  clearHandover();
+  // A deliberate jump stops whatever the other deck was doing.
+  const other = idleEl();
+  other.pause(); other.removeAttribute('src');
+  const el = liveEl();
+  el.volume = player.muted ? 0 : player.volume;
+  el.src = streamUrl(track.id);
+  el.play().catch(err => {
     if (err && err.name !== 'AbortError') toast('Cannot play: ' + err.message, 'err');
   });
+  armHandover();
   if (prefOn('countplays')) {
     api('/api/played', { body: { id: track.id } }).catch(() => {});
     track.plays = (track.plays || 0) + 1;
@@ -3439,18 +3842,21 @@ function playAt(pos) {
 }
 
 function next(auto) {
-  if (player.repeat === 'one' && auto) { audio.currentTime = 0; audio.play(); return; }
+  if (player.repeat === 'one' && auto) { liveEl().currentTime = 0; liveEl().play(); return; }
   if (player.pos + 1 < player.order.length) return playAt(player.pos + 1);
   if (player.repeat === 'all' && player.order.length) return playAt(0);
   if (auto) stop();
 }
 function prev() {
-  if (audio.currentTime > 3) { audio.currentTime = 0; return; }
+  if (liveEl().currentTime > 3) { liveEl().currentTime = 0; return; }
   if (player.pos > 0) playAt(player.pos - 1);
-  else audio.currentTime = 0;
+  else liveEl().currentTime = 0;
 }
 function stop() {
-  audio.pause(); audio.removeAttribute('src'); audio.load();
+  clearHandover();
+  for (const el of [audio, audioB]) {
+    el.pause(); el.removeAttribute('src'); el.load();
+  }
   player.current = null; player.pos = -1;
   renderNowPlaying(); paintRows();
   document.title = 'Cadence';
@@ -3463,7 +3869,7 @@ function togglePlay() {
     }
     return;
   }
-  if (audio.paused) audio.play(); else audio.pause();
+  if (liveEl().paused) liveEl().play(); else liveEl().pause();
 }
 
 function renderNowPlaying() {
@@ -3490,7 +3896,7 @@ function renderNowPlaying() {
     $('#t-now').textContent = '0:00'; $('#t-end').textContent = '0:00';
     $('#seek .fill').style.width = '0%'; $('#seek .knob').style.left = '0%';
   }
-  const playing = player.current && !audio.paused;
+  const playing = player.current && !liveEl().paused;
   $('#btn-play').innerHTML = icon(playing ? 'pause' : 'play');
   $('#st-play').innerHTML = icon(playing ? 'pause' : 'play') +
     `<span id="st-play-label">${playing ? 'Playing' : (player.current ? 'Paused' : 'Stopped')}</span>`;
@@ -3516,7 +3922,7 @@ function updateStatus() {
 
 function setVolume(value) {
   player.volume = Math.max(0, Math.min(1, value));
-  audio.volume = player.muted ? 0 : player.volume;
+  liveEl().volume = player.muted ? 0 : player.volume;
   $('#vol .fill').style.width = (player.muted ? 0 : player.volume * 100) + '%';
   $('#vol .knob').style.left = (player.muted ? 0 : player.volume * 100) + '%';
   $('#btn-vol').innerHTML = icon(player.muted || !player.volume ? 'mute' : 'vol');
@@ -3691,6 +4097,11 @@ const PREFS = [
   { key: 'animate',    label: 'Animate the playing indicator', def: true },
   { key: 'compact',    label: 'Compact rows', hint: 'Tighter row height', def: false },
   { key: 'scanlaunch', label: 'Rescan the folder on launch', def: true },
+  { key: 'gapless',    label: 'Gapless playback',
+    hint: 'Start the next track before the current one ends, so albums run on', def: true },
+  { key: 'watch',      label: 'Watch the folder for changes',
+    hint: 'Picks up files added or removed while Cadence is open. Takes effect next launch',
+    def: true },
   { key: 'countplays', label: 'Count plays', def: true },
   { key: 'frameless',  label: 'Hide the Windows title bar and buttons',
     hint: "Reopens filling the screen, with only Cadence's own controls. "
@@ -3737,8 +4148,121 @@ const EQ_PRESETS = {
   'Radio':        [-4, -3, 0, 3, 4, 3, 2, 0, -2, -4],
 };
 
-const eq = { ctx: null, source: null, preampNode: null, filters: [], limiterNode: null,
-             gains: EQ_BANDS.map(() => 0), preamp: 0, on: false, limiter: false };
+const eq = { ctx: null, source: null, sourceB: null, preampNode: null, filters: [],
+             limiterNode: null, gains: EQ_BANDS.map(() => 0), preamp: 0,
+             on: false, limiter: false };
+
+/* ---------- gapless handover and crossfade ---------- */
+// Two elements take turns. `deck` is whichever is audible; the other one is
+// spun up shortly before the end so the change is seamless. With a crossfade
+// set, both play together for that many seconds and their volumes are ramped.
+const decks = { current: 'a', handover: null, armed: null, timer: null, onEnd: null };
+const deckEl = which => (which === 'a' ? audio : audioB);
+const liveEl = () => deckEl(decks.current);
+const idleEl = () => deckEl(decks.current === 'a' ? 'b' : 'a');
+const crossfadeSeconds = () => {
+  const stored = parseFloat((state.info && state.info.settings || {}).crossfade);
+  return isFinite(stored) ? Math.max(0, Math.min(12, stored)) : 0;
+};
+const gaplessOn = () => prefOn('gapless');
+
+function nextInOrder() {
+  if (player.repeat === 'one') return player.pos;
+  if (player.pos + 1 < player.order.length) return player.pos + 1;
+  return player.repeat === 'all' && player.order.length ? 0 : -1;
+}
+
+function clearHandover() {
+  if (decks.handover) { clearInterval(decks.handover); decks.handover = null; }
+  if (decks.timer) { clearTimeout(decks.timer); decks.timer = null; }
+  if (decks.onEnd) { decks.onEnd.el.removeEventListener('ended', decks.onEnd.fn); decks.onEnd = null; }
+  decks.armed = null;
+}
+
+function armHandover() {
+  // Watch the playing element and start the next one at the right moment.
+  clearHandover();
+  if (!gaplessOn() && crossfadeSeconds() === 0) return;
+  decks.handover = setInterval(() => {
+    const el = liveEl();
+    if (!el.duration || el.paused) return;
+    const fade = crossfadeSeconds();
+    const remaining = el.duration - el.currentTime;
+    // Load early enough that the next file has been fetched and decoded; a
+    // crossfade needs the whole fade, a gapless join only needs the lead time.
+    const lead = Math.max(fade, 1.2);
+    if (remaining > lead || decks.armed !== null) return;
+    const at = nextInOrder();
+    if (at < 0) return;
+    const track = state.byId.get(player.queue[player.order[at]]);
+    if (!track) return;
+    decks.armed = at;
+    if (fade > 0) return startNextDeck(track, at, fade);
+
+    // Gapless: the next deck is prepared now but held until this one is nearly
+    // out, so neither track loses its ending. Starting it at the arming point
+    // instead would cut more than a second off every track.
+    prepareDeck(track);
+    const fire = () => {
+      if (decks.armed !== at) return;
+      clearTimeout(decks.timer); decks.timer = null;
+      startNextDeck(track, at, 0);
+    };
+    // A hair of overlap beats a hole: silence between tracks is what gapless is
+    // meant to remove, and ~60ms of two decays together is inaudible.
+    decks.timer = setTimeout(fire, Math.max(0, (el.duration - el.currentTime) * 1000 - 60));
+    el.addEventListener('ended', fire, { once: true });   // backstop if the timer drifts
+    decks.onEnd = { el, fn: fire };
+  }, 120);
+}
+
+function prepareDeck(track) {
+  // Fetch and decode the next track while the current one is still playing.
+  const incoming = idleEl();
+  incoming.src = streamUrl(track.id);
+  incoming.preload = 'auto';
+  incoming.currentTime = 0;
+  incoming.load();
+}
+
+function startNextDeck(track, at, fade) {
+  const incoming = idleEl();
+  const outgoing = liveEl();
+  const wanted = streamUrl(track.id);
+  if (incoming.src !== new URL(wanted, location.href).href) {
+    incoming.src = wanted;          // not prepared ahead of time - load it now
+    incoming.currentTime = 0;
+  }
+  incoming.volume = fade > 0 ? 0 : (player.muted ? 0 : player.volume);
+  incoming.play().then(() => {
+    decks.current = decks.current === 'a' ? 'b' : 'a';
+    player.pos = at;
+    player.current = track;
+    if (prefOn('countplays')) {
+      api('/api/played', { body: { id: track.id } }).catch(() => {});
+      track.plays = (track.plays || 0) + 1;
+    }
+    renderNowPlaying(); paintRows();
+    if (decks.onEnd) { decks.onEnd.el.removeEventListener('ended', decks.onEnd.fn); decks.onEnd = null; }
+    if (fade > 0) rampDecks(outgoing, incoming, fade);
+    else { outgoing.pause(); outgoing.removeAttribute('src'); }
+    document.title = `${track.title} · ${track.artist} — Cadence`;
+    decks.armed = null;
+  }).catch(() => { decks.armed = null; });
+}
+
+function rampDecks(outgoing, incoming, seconds) {
+  const target = player.muted ? 0 : player.volume;
+  const started = performance.now();
+  const step = () => {
+    const t = Math.min(1, (performance.now() - started) / (seconds * 1000));
+    outgoing.volume = Math.max(0, target * (1 - t));
+    incoming.volume = Math.min(1, target * t);
+    if (t < 1) requestAnimationFrame(step);
+    else { outgoing.pause(); outgoing.removeAttribute('src'); incoming.volume = target; }
+  };
+  requestAnimationFrame(step);
+}
 
 // An AudioContext created before anyone has touched the page starts suspended,
 // and routing the audio element through a suspended graph produces silence
@@ -3768,6 +4292,7 @@ function eqBuild() {
   try {
     eq.ctx = new Ctx();
     eq.source = eq.ctx.createMediaElementSource(audio);
+    eq.sourceB = eq.ctx.createMediaElementSource(audioB);
     eq.preampNode = eq.ctx.createGain();
     eq.filters = EQ_BANDS.map((hz, i) => {
       const f = eq.ctx.createBiquadFilter();
@@ -3783,7 +4308,9 @@ function eqBuild() {
     eq.limiterNode.ratio.value = 20;
     eq.limiterNode.attack.value = 0.003;
     eq.limiterNode.release.value = 0.25;
-    let node = eq.source.connect(eq.preampNode);
+    eq.source.connect(eq.preampNode);
+    eq.sourceB.connect(eq.preampNode);
+    let node = eq.preampNode;
     eq.filters.forEach(f => { node = node.connect(f); });
     node.connect(eq.limiterNode).connect(eq.ctx.destination);
     // The limiter sits in the chain permanently; with ratio 20 and a -3 dB
@@ -3907,6 +4434,15 @@ function prefsHtml() {
           <label class="sw"><input type="checkbox" data-pref-eq="limiter" ${eq.limiter ? 'checked' : ''}>
             <span>Limiter <em>stops boosted bands from clipping</em></span></label>
         </div>
+        <label class="pick" style="margin-top:8px">Crossfade
+          <span style="display:flex;align-items:center;gap:8px">
+            <input type="range" id="crossfade" min="0" max="12" step="0.5"
+              value="${crossfadeSeconds()}" style="width:110px;accent-color:var(--a400)">
+            <span id="crossfade-label" style="font-family:var(--mono);font-size:11px;
+              min-width:42px">${crossfadeSeconds() ? crossfadeSeconds() + 's' : 'off'}</span>
+          </span></label>
+        <div class="hint">Overlaps the end of one track with the start of the next.
+        Off leaves gapless playback to run tracks straight on.</div>
       </section>
 
       <section>
@@ -4085,6 +4621,9 @@ const SOURCES = {
   playlist: v => { const p = state.playlists.find(x => x.id === +v) || { name: 'Playlist' };
                    return { id: 'pl:' + v, kind: 'playlist', value: +v, icon: 'playlist',
                             title: p.name, crumbs: ['Playlists', p.name] }; },
+  smart: v => { const s = smartList(v) || { name: 'Smart playlist' };
+                return { id: 'sm:' + v, kind: 'smart', value: v, icon: 'sliders',
+                         title: s.name, crumbs: ['Playlists', 'Smart', s.name] }; },
   localplaylist: v => { const p = localPlaylist(v) || { name: 'Playlist' };
                         return { id: 'lp:' + v, kind: 'localplaylist', value: v, icon: 'pin',
                                  title: p.name, crumbs: ['Playlists', 'On this computer', p.name] }; },
@@ -4157,6 +4696,92 @@ function showModal(title, bodyHtml, footHtml) {
   $('#modal').classList.add('on'); $('#scrim').classList.add('on');
 }
 
+const WRITABLE_TAGS = ['.mp3', '.flac'];
+const TAG_ROWS = [
+  { key: 'title',       label: 'Title',        single: true, full: true },
+  { key: 'artist',      label: 'Artist' },
+  { key: 'album',       label: 'Album' },
+  { key: 'albumartist', label: 'Album Artist' },
+  { key: 'genre',       label: 'Genre' },
+  { key: 'composer',    label: 'Composer' },
+  { key: 'year',        label: 'Year',         num: true },
+  { key: 'track',       label: 'Track No.',    num: true, single: true },
+  { key: 'disc',        label: 'Disc No.',     num: true },
+];
+
+const tagWritable = t => WRITABLE_TAGS.includes(
+  (t.path.slice(t.path.lastIndexOf('.')) || '').toLowerCase());
+
+function tagEditor(tracks) {
+  const editable = tracks.filter(tagWritable);
+  if (!editable.length) {
+    showModal('Edit tags',
+      `<p>Cadence can only write tags to MP3 and FLAC files so far. Everything
+        else is read-only, so nothing here can be edited yet.</p>`,
+      `<button class="btn" data-act="modal-close">Close</button>`);
+    return;
+  }
+  const many = editable.length > 1;
+  const rows = TAG_ROWS.filter(row => !(many && row.single));
+  // With several tracks selected a field is only pre-filled when they all
+  // agree; leaving a mixed field alone keeps each track's own value.
+  const shared = key => {
+    const first = editable[0][key];
+    return editable.every(t => (t[key] || '') === (first || '')) ? (first || '') : null;
+  };
+  const start = {};
+  const fields = rows.map(row => {
+    const value = shared(row.key);
+    start[row.key] = value === null ? '' : String(value === 0 && row.num ? '' : value);
+    return `<div class="field ${row.full ? 'wide' : ''}"><label for="tag-${row.key}">${esc(row.label)}</label>
+      <input id="tag-${row.key}" data-tag="${row.key}"
+             ${row.num ? 'type="number" min="0" step="1"' : 'type="text"'}
+             value="${esc(start[row.key])}"
+             placeholder="${value === null ? '(various — leave to keep)' : ''}"></div>`;
+  }).join('');
+  const skipped = tracks.length - editable.length;
+  showModal(many ? `Edit tags — ${editable.length} tracks` : 'Edit tags',
+    `${many ? '' : `<p class="hint">${esc(editable[0].filename)}</p>`}
+     <div class="taggrid">${fields}</div>
+     ${skipped ? `<p class="hint">${skipped} selected file(s) are not MP3 or FLAC and
+        will be left alone.</p>` : ''}
+     <p class="hint">Tags are written into the files themselves. The audio is copied
+       through untouched and cover art is kept.</p>
+     <div id="tag-status" class="hint"></div>`,
+    `<button class="btn quiet" data-act="modal-close">Cancel</button>
+     <button class="btn" id="do-tags">Save</button>`);
+  const firstInput = $('#modal-body input');
+  if (firstInput) { firstInput.focus(); firstInput.select(); }
+
+  $('#do-tags').addEventListener('click', async () => {
+    const edits = {};
+    $$('#modal-body input[data-tag]').forEach(input => {
+      const key = input.dataset.tag;
+      if (input.value !== start[key]) edits[key] = input.value.trim();
+    });
+    if (!Object.keys(edits).length) { closeModal(); return; }
+    const button = $('#do-tags');
+    button.disabled = true;
+    const status = $('#tag-status');
+    let done = 0;
+    const failures = [];
+    for (const track of editable) {
+      status.textContent = `Writing ${done + 1} of ${editable.length}…`;
+      try {
+        await api('/api/tags', { body: { id: track.id, tags: edits } });
+        done++;
+      } catch (err) {
+        failures.push(`${track.filename}: ${err.message || err}`);
+      }
+    }
+    await refreshTracks();
+    renderNowPlaying();
+    closeModal();
+    if (failures.length) toast(`${done} updated, ${failures.length} failed — ${failures[0]}`, 'err');
+    else toast(done === 1 ? 'Tags saved' : `Tags saved for ${done} tracks`, 'ok');
+  });
+}
+
 let pickPath = '';
 async function pickFolder(startAt) {
   const data = await api('/api/browse?path=' + encodeURIComponent(startAt || pickPath ||
@@ -4201,6 +4826,123 @@ async function useFolder() {
     state.info = await api('/api/state');
     watchScan();
   } catch (err) { toast(err.message, 'err'); }
+}
+
+function smartEditor(existing) {
+  const list = existing || { id: 'S' + Date.now().toString(36), name: '', match: 'all',
+                             rules: [{ field: 'genre', op: 'contains', value: '' }],
+                             sort: 'default', desc: false, limit: 0 };
+  const draft = JSON.parse(JSON.stringify(list));
+
+  const ruleRow = (rule, index) => {
+    const field = SMART_FIELDS.find(f => f.key === rule.field) || SMART_FIELDS[0];
+    return `<div class="rule" data-rule="${index}">
+      <select data-rule-field="${index}">${SMART_FIELDS.map(f =>
+        `<option value="${f.key}" ${f.key === rule.field ? 'selected' : ''}>${esc(f.label)}</option>`).join('')}</select>
+      <select data-rule-op="${index}">${SMART_OPS[field.type].map(([v, l]) =>
+        `<option value="${v}" ${v === rule.op ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
+      <input data-rule-value="${index}" value="${esc(rule.value == null ? '' : rule.value)}"
+        ${rule.op === 'empty' ? 'disabled placeholder="—"' : ''}
+        type="${field.type === 'number' ? 'number' : 'text'}">
+      <button class="rule-x" data-rule-remove="${index}" title="Remove">${icon('x')}</button>
+    </div>`;
+  };
+
+  const render = () => {
+    $('#smart-rules').innerHTML = draft.rules.map(ruleRow).join('');
+    const matched = smartTracks(draft);
+    $('#smart-count').textContent = draft.name || draft.rules.length
+      ? `${matched.length} track${matched.length === 1 ? '' : 's'} match right now`
+      : '';
+    $('#smart-preview').innerHTML = matched.slice(0, 6).map(t =>
+      `<div class="row" style="height:20px"><span class="label">${esc(t.title)}</span>
+       <span class="sub">${esc(t.artist)}</span></div>`).join('')
+      || '<div style="padding:8px 10px;color:var(--fg-faint);font-size:11px">Nothing matches yet.</div>';
+  };
+
+  showModal(existing ? 'Edit smart playlist' : 'New smart playlist', `
+    <div class="field"><label>Name</label>
+      <input id="smart-name" value="${esc(draft.name)}" placeholder="Long ambient"></div>
+    <div class="field"><label>Match</label>
+      <select id="smart-match">
+        <option value="all" ${draft.match === 'all' ? 'selected' : ''}>all of these rules</option>
+        <option value="any" ${draft.match === 'any' ? 'selected' : ''}>any of these rules</option>
+      </select></div>
+    <div class="field"><label>Rules</label>
+      <div id="smart-rules"></div>
+      <button class="btn quiet" id="smart-add" style="margin-top:6px">Add a rule</button></div>
+    <div class="field"><label>Order and limit</label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="smart-sort">
+          <option value="default">library order</option>
+          ${SMART_FIELDS.map(f => `<option value="${f.key}"
+            ${f.key === draft.sort ? 'selected' : ''}>by ${esc(f.label.toLowerCase())}</option>`).join('')}
+          <option value="added" ${draft.sort === 'added' ? 'selected' : ''}>by date added</option>
+        </select>
+        <label class="sw" style="margin:0"><input type="checkbox" id="smart-desc"
+          ${draft.desc ? 'checked' : ''}><span>reversed</span></label>
+        <label class="sw" style="margin:0"><span>at most</span></label>
+        <input id="smart-limit" type="number" min="0" style="width:80px" value="${draft.limit || 0}">
+        <span class="hint" style="margin:0">0 means no limit</span>
+      </div></div>
+    <div class="field"><label>Preview</label>
+      <div class="hint" id="smart-count"></div>
+      <div class="dirlist" id="smart-preview" style="max-height:130px"></div></div>`,
+    `<button class="btn quiet" data-act="modal-close">Cancel</button>
+     ${existing ? '<button class="btn quiet" id="smart-delete">Delete</button>' : ''}
+     <button class="btn" id="smart-save">Save</button>`);
+
+  render();
+  const sync = () => {
+    draft.name = $('#smart-name').value.trim();
+    draft.match = $('#smart-match').value;
+    draft.sort = $('#smart-sort').value;
+    draft.desc = $('#smart-desc').checked;
+    draft.limit = Math.max(0, parseInt($('#smart-limit').value, 10) || 0);
+  };
+
+  $('#modal').addEventListener('input', e => {
+    const v = e.target.closest('[data-rule-value]');
+    if (v) { draft.rules[+v.dataset.ruleValue].value = v.value; sync(); render(); return; }
+    sync(); render();
+  });
+  $('#modal').addEventListener('change', e => {
+    const f = e.target.closest('[data-rule-field]');
+    if (f) {
+      const i = +f.dataset.ruleField;
+      draft.rules[i].field = f.value;
+      const type = (SMART_FIELDS.find(x => x.key === f.value) || {}).type;
+      draft.rules[i].op = SMART_OPS[type][0][0];
+      sync(); render(); return;
+    }
+    const o = e.target.closest('[data-rule-op]');
+    if (o) { draft.rules[+o.dataset.ruleOp].op = o.value; sync(); render(); return; }
+    sync(); render();
+  });
+  $('#modal').addEventListener('click', e => {
+    const x = e.target.closest('[data-rule-remove]');
+    if (x) { draft.rules.splice(+x.dataset.ruleRemove, 1); render(); }
+  });
+  $('#smart-add').addEventListener('click', () => {
+    draft.rules.push({ field: 'artist', op: 'contains', value: '' }); render();
+  });
+  $('#smart-save').addEventListener('click', async () => {
+    sync();
+    if (!draft.name) { $('#smart-name').focus(); return; }
+    const at = state.smartLists.findIndex(s => s.id === draft.id);
+    if (at >= 0) state.smartLists[at] = draft; else state.smartLists.push(draft);
+    await saveSmartLists();
+    closeModal(); renderSide(); openTab(SOURCES.smart(draft.id));
+    toast(`"${draft.name}" saved`, 'ok');
+  });
+  const del = $('#smart-delete');
+  if (del) del.addEventListener('click', async () => {
+    state.smartLists = state.smartLists.filter(s => s.id !== draft.id);
+    await saveSmartLists();
+    closeModal(); closeTab('sm:' + draft.id); renderSide();
+    toast('Smart playlist deleted', 'ok');
+  });
+  $('#smart-name').focus();
 }
 
 function newPlaylist(seedIds) {
@@ -4425,6 +5167,7 @@ function wire() {
       else if (name === 'use-folder') useFolder();
       else if (name === 'create-playlist') createPlaylist();
       else if (name === 'new-playlist') newPlaylist();
+      else if (name === 'new-smart') smartEditor(null);
       else if (name === 'open-all') openTab(SOURCES.all());
       else if (name === 'settings-tab') openSettingsTab();
       else if (name === 'clear-queue') { player.queue = []; player.order = []; stop(); renderSide(); }
@@ -4539,6 +5282,17 @@ function wire() {
   }, true);
 
   document.addEventListener('input', e => {
+    const fade = e.target.closest('#crossfade');
+    if (fade) {
+      const seconds = parseFloat(fade.value);
+      state.info.settings = Object.assign({}, state.info.settings,
+                                          { crossfade: String(seconds) });
+      const label = $('#crossfade-label');
+      if (label) label.textContent = seconds ? seconds + 's' : 'off';
+      saveSetting('crossfade', String(seconds));
+      armHandover();
+      return;
+    }
     const pre = e.target.closest('[data-eq-preamp]');
     if (pre) {
       eq.preamp = parseFloat(pre.value);
@@ -4695,6 +5449,7 @@ function wire() {
       { id: 'artist', label: 'Go to Artist', disabled: many },
       '-',
       { id: 'details', label: 'Show Details' },
+      { id: 'edittags', label: 'Edit Tags…', key: 'F2' },
       { id: 'reveal', label: 'Reveal in File Manager', disabled: many },
       { id: 'copy', label: 'Copy Path', key: 'Ctrl+C' },
       { id: 'export', label: 'Export as .m3u8' },
@@ -4725,6 +5480,7 @@ function wire() {
       else if (id === 'album') openTab(SOURCES.album(first.album, first.albumartist));
       else if (id === 'artist') openTab(SOURCES.artist(first.albumartist));
       else if (id === 'details') { togglePanel(true); panelTab = 'details'; renderPanel(); }
+      else if (id === 'edittags') tagEditor(tracks);
       else if (id === 'reveal') api('/api/reveal', { body: { id: first.id } })
         .then(r => toast(r.error ? r.error : 'Opened ' + r.folder, r.error ? 'err' : 'ok'));
       else if (id === 'copy') copyPaths();
@@ -4734,6 +5490,27 @@ function wire() {
 
   // sidebar context menu (playlists)
   $('#side-body').addEventListener('contextmenu', e => {
+    const smartRow = e.target.closest('[data-ctx="smart"]');
+    if (smartRow) {
+      e.preventDefault();
+      const id = smartRow.dataset.value;
+      showContext(e.clientX, e.clientY, [
+        { id: 'open', label: 'Open' }, { id: 'play', label: 'Play' },
+        '-', { id: 'edit', label: 'Edit rules…' }, { id: 'delete', label: 'Delete' },
+      ]);
+      $('#ctx')._handler = action => {
+        if (action === 'open') openTab(SOURCES.smart(id));
+        else if (action === 'play') {
+          const tracks = smartTracks(smartList(id));
+          tracks.length ? playQueue(tracks.map(t => t.id), 0) : toast('Nothing matches', 'err');
+        } else if (action === 'edit') smartEditor(smartList(id));
+        else if (action === 'delete') {
+          state.smartLists = state.smartLists.filter(s => s.id !== id);
+          saveSmartLists().then(() => { closeTab('sm:' + id); renderSide(); });
+        }
+      };
+      return;
+    }
     const localRow = e.target.closest('[data-ctx="localplaylist"]');
     if (localRow) {
       e.preventDefault();
@@ -4839,12 +5616,12 @@ function wire() {
     });
   }
   dragBar($('#seek'), (ratio, done) => {
-    const duration = audio.duration || (player.current && player.current.duration) || 0;
+    const duration = liveEl().duration || (player.current && player.current.duration) || 0;
     player.seeking = !done;
     $('#seek .fill').style.width = (ratio * 100) + '%';
     $('#seek .knob').style.left = (ratio * 100) + '%';
     $('#t-now').textContent = fmtTime(ratio * duration);
-    if (done && duration) audio.currentTime = ratio * duration;
+    if (done && duration) liveEl().currentTime = ratio * duration;
   });
   dragBar($('#vol'), ratio => { player.muted = false; setVolume(ratio); });
 
@@ -4870,32 +5647,39 @@ function wire() {
   });
 
   // audio element
-  audio.addEventListener('timeupdate', () => {
-    if (player.seeking) return;
-    const duration = audio.duration || 0;
-    const ratio = duration ? audio.currentTime / duration : 0;
+  for (const el of [audio, audioB]) {
+  el.addEventListener('timeupdate', () => {
+    if (player.seeking || el !== liveEl()) return;
+    const duration = el.duration || 0;
+    const ratio = duration ? el.currentTime / duration : 0;
     $('#seek .fill').style.width = (ratio * 100) + '%';
     $('#seek .knob').style.left = (ratio * 100) + '%';
-    $('#t-now').textContent = fmtTime(audio.currentTime);
+    $('#t-now').textContent = fmtTime(el.currentTime);
     if (duration) $('#t-end').textContent = fmtTime(duration);
   });
-  audio.addEventListener('progress', () => {
-    if (audio.buffered.length && audio.duration) {
-      const end = audio.buffered.end(audio.buffered.length - 1);
-      $('#seek .buf').style.width = (end / audio.duration * 100) + '%';
+  el.addEventListener('progress', () => {
+    if (el !== liveEl()) return;
+    if (el.buffered.length && el.duration) {
+      const end = el.buffered.end(el.buffered.length - 1);
+      $('#seek .buf').style.width = (end / el.duration * 100) + '%';
     }
   });
-  audio.addEventListener('ended', () => next(true));
-  audio.addEventListener('play', renderNowPlaying);
-  audio.addEventListener('pause', renderNowPlaying);
-  audio.addEventListener('error', () => {
-    if (!audio.src) return;
+  el.addEventListener('ended', () => {
+    if (el !== liveEl()) return;     // the outgoing deck finishing is expected
+    if (decks.armed !== null) return; // the next deck has already taken over
+    next(true);
+  });
+  el.addEventListener('play', () => { if (el === liveEl()) renderNowPlaying(); });
+  el.addEventListener('pause', () => { if (el === liveEl()) renderNowPlaying(); });
+  el.addEventListener('error', () => {
+    if (!el.src || el !== liveEl()) return;
     const track = player.current;
     toast(`Cannot decode ${track ? track.filename : 'this file'} — the browser engine may not ` +
           'support that codec.', 'err');
     out(`playback error: ${track ? track.path : '?'}`);
     setTimeout(() => next(true), 400);
   });
+  }
 
   // quick pick
   $('#qp-input').addEventListener('input', refreshQuick);
@@ -4929,6 +5713,9 @@ function wire() {
     if (e.code === 'KeyS') return toggleShuffle();
     if (e.code === 'KeyR') return cycleRepeat();
     if (e.code === 'KeyM') { player.muted = !player.muted; return setVolume(player.volume); }
+    if (e.key === 'F2' && state.sel.size) {
+      e.preventDefault(); return tagEditor(selectedTracks());
+    }
     if (e.code === 'Enter' && state.sel.size) {
       return playQueue(state.rows.map(t => t.id), Math.min(...state.sel));
     }
@@ -5078,6 +5865,10 @@ async function boot() {
   state.columns = settings.columns === undefined
     ? DEFAULT_COLUMNS.slice()
     : settings.columns.split(',').filter(Boolean);
+  try {
+    state.smartLists = JSON.parse(settings.smartlists || '[]');
+    if (!Array.isArray(state.smartLists)) state.smartLists = [];
+  } catch { state.smartLists = []; }
   state.prefs = {};
   for (const [key, value] of Object.entries(settings)) {
     if (key.startsWith('pref_')) state.prefs[key.slice(5)] = value;
@@ -5248,6 +6039,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-scan", action="store_true", help="skip the launch scan")
     parser.add_argument("--keep-alive", action="store_true",
                         help="keep running after the window is closed")
+    parser.add_argument("--portable", action="store_true",
+                        help="keep the index and settings beside the program instead of "
+                             "in the user profile")
+    parser.add_argument("--no-watch", action="store_true",
+                        help="do not rescan automatically when the folder changes")
     parser.add_argument("--frameless", action="store_true",
                         help="open without the operating system's title bar and window "
                              "buttons, leaving only Cadence's (fills the screen)")
@@ -5276,7 +6072,13 @@ def main(argv: list[str] | None = None) -> int:
         log("wrote", args.write_svg)
         return 0
 
-    library = Library(os.path.join(config_dir(), "library.db"))
+    global _PORTABLE
+    if args.portable:
+        _PORTABLE = True
+    where = config_dir()
+    if portable_dir():
+        log("portable mode - index and settings in", where)
+    library = Library(os.path.join(where, "library.db"))
     folder = args.folder_opt or args.folder
     if folder:
         folder = os.path.abspath(os.path.expanduser(folder))
@@ -5306,6 +6108,9 @@ def main(argv: list[str] | None = None) -> int:
         log("launch scan is switched off in preferences")
     elif not folder:
         log("no music folder designated yet - pick one in the window")
+
+    if not args.no_watch and library.get_setting("pref_watch", "1") != "0":
+        library.watch_async(lambda: library.get_setting("music_folder"))
 
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

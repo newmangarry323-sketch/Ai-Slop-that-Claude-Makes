@@ -99,29 +99,41 @@ change compiles before committing to a release.
 
 ## Step 4 — what the workflow does
 
-`.github/workflows/build-cadence-exe.yml`, on `windows-latest`, about 90
-seconds:
+`.github/workflows/build-cadence-exe.yml` runs four jobs — one check, three
+builds in parallel, then the release. A few minutes end to end.
 
-1. **Sanity-check** — parses `Cadence.py` and confirms the version agrees
-   across the three files. Fails the build if not.
-2. **Generate the icon** — `Cadence.py --write-icon`, so the packaged icon is
-   always drawn from the current source rather than a stale committed file.
-3. **Work out the tag** — reads `APP_VERSION` and forms `cadence-v<version>`.
-4. **Clear a stale release** — if a release already holds that tag, delete it,
-   because a tag cannot be re-pointed through the releases API.
-5. **Compose the notes** — pulls your `## <version>` section out of
+**check** (`ubuntu-latest`) — the gate. Everything else waits on it.
+
+1. **Sanity-check** — parses `Cadence.py`, confirms the version agrees across
+   the three files, and confirms every `UI_SCRIPT_*` chunk actually reaches the
+   page. Fails the build if not.
+2. **Work out the tag** — reads `APP_VERSION`, forms `cadence-v<version>`, and
+   decides whether this run publishes.
+3. **Compose the notes** — pulls your `## <version>` section out of
    `CHANGELOG.md` and appends install instructions and links to the previous
-   release.
-6. **Build** — PyInstaller `--onefile --noconsole`, with the icon embedded, the
-   `.ico` packed inside as data, and `version.txt` as the version resource.
-7. **Smoke-test** — actually runs the built executable. A `--noconsole` build
-   cannot print, so it is asked to write its icon to a file; producing that
-   file proves the program starts and its code runs.
-8. **Upload** the artifact, **publish** the release at the commit that was
-   built, and **re-link** older releases so their notes point at what follows.
+   release. Notes for *every* version are composed, not just yours.
 
-Watch it under **Actions → Build Cadence.exe**. If it fails, the log names the
-step, and nothing is published.
+**windows** (`windows-latest`) — generates the icon from source, builds with
+PyInstaller `--onefile --noconsole` with the icon embedded, the `.ico` packed
+inside as data and `version.txt` as the version resource, **signs it** if a
+certificate is in the repository secrets (and says so plainly if not), then
+smoke-tests it: a `--noconsole` build cannot print, so it is asked to write its
+icon to a file, and producing that file proves the program starts.
+
+**unix** (`ubuntu-latest` and `macos-latest`) — the same build without
+`--noconsole`, then a harder smoke test: the binary is pointed at a generated
+one-track folder, started, and asked over its own HTTP API how many tracks it
+found. One track, or the build fails. Each is uploaded as a `.tar.gz`.
+
+**release** — only when publishing. Collects all three builds, deletes a stale
+release holding the same tag (a tag cannot be re-pointed through the releases
+API), publishes at the commit that was built, and re-links older releases so
+their notes point at what follows.
+
+Watch it under **Actions → Build Cadence**. If it fails, the log names the
+step and the job, and nothing is published. A build failing on one platform
+does not stop the others from finishing — but the release waits for all of
+them.
 
 ## Step 5 — what people running Cadence see
 

@@ -4,6 +4,75 @@ Every release of Cadence, newest first. The version here is the value of
 `APP_VERSION` in `Cadence.py`, and each release is tagged `cadence-v<version>`
 on the commit that produced its executable.
 
+## 1.3.0
+
+The seven things on the roadmap, six of them finished.
+
+- **Tag editing.** Cadence only read tags before; now it writes them too.
+  Select a track and press `F2`, or use **Edit Tags…** on the right-click menu.
+  Title, artist, album, album artist, genre, composer, year, track and disc
+  can all be changed, and several tracks can be retagged at once — a field the
+  selection disagrees on is left blank and marked, so leaving it alone keeps
+  each track's own value. MP3 and FLAC only for now; anything else says so
+  rather than pretending.
+
+  The write is deliberately careful. Only the tag block is rebuilt: the audio
+  frames are copied through byte for byte, and existing cover art is carried
+  over. The new file is written beside the original and moved into place in one
+  step, so an interruption leaves the original intact rather than a half-written
+  file. After writing, the file is read back and the index is updated from what
+  the file actually says, so the library can never claim a tag the file does not
+  have.
+
+- **Gapless playback and crossfade.** Two audio decks take turns. With gapless
+  on, the next track is fetched and decoded about a second before the current
+  one ends, then started as it runs out — so the ending of a track is no longer
+  clipped and there is no pause between them. Crossfade (0–12 seconds, in
+  Preferences) plays both together and ramps one down as the other comes up.
+
+- **The music folder is watched.** Cadence noticed new files only when it was
+  restarted or when you pressed `F5`. It now checks the folder every few
+  seconds and rescans by itself when something has been added, removed or
+  changed. `--no-watch`, or the preference, switches it off.
+
+- **Smart playlists.** Rules rather than a fixed list of tracks: *genre is
+  Electronic* **and** *year is more than 2010*, sorted by year, capped at 25.
+  Twelve fields, text and numeric operators, match all or any, and the list
+  re-evaluates itself whenever the library changes. They live in the index, so
+  they travel with `library.db`.
+
+- **Portable mode.** `--portable`, or a file named `cadence-portable.txt`
+  beside the executable, keeps the index, settings and playlists in a
+  `Cadence-data` folder next to the program instead of in your user profile.
+  A USB stick is then self-contained.
+
+- **Linux and macOS builds.** The program already ran there from source; the
+  release now carries built executables for both alongside the Windows one.
+  They are console programs — start them from a terminal.
+
+- **Code signing is wired up but not yet switched on.** Signing is what removes
+  the Windows SmartScreen warning. The tools that apply a signature are free and
+  open source; what Windows actually checks is that the certificate behind the
+  signature chains to a CA it trusts, and a certificate you generate yourself
+  is worse than none — the file then claims a publisher nobody can verify.
+  SignPath Foundation issues one free to open-source projects, which is the
+  route this repository would take.
+
+  The build now takes either route with no code change: SignPath, which holds
+  the key on its own hardware and signs a build it fetches from this repository
+  so nothing secret reaches the runner, or a certificate held directly as a
+  `.pfx` in the repository secrets. Set up neither and it publishes unsigned as
+  before, saying so in the log along with what Windows makes of the result.
+  README.md lists what each route needs.
+
+Also in this release:
+
+- Composer is a column you can switch on, a field you can search on in a smart
+  playlist, and part of what the Details panel shows. It was read from files all
+  along but never sent to the interface.
+- Changing the music folder, or a file appearing while a scan is already
+  running, no longer competes with the watcher.
+
 ## 1.2.4
 
 - **Fixed: tracks would not play until the equalizer was switched off and on

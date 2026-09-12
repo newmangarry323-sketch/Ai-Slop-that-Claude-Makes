@@ -44,6 +44,8 @@ window.
 | `--no-browser` | Start the server only |
 | `--keep-alive` | Keep running after the window is closed |
 | `--frameless` | Open without the OS title bar and window buttons (fills the screen) |
+| `--portable` | Keep the index and settings beside the program, not in your user profile |
+| `--no-watch` | Do not rescan automatically when the folder changes |
 | `--write-icon [PATH]` | Write the app icon as a multi-resolution `.ico` (10 sizes, 16-256 px) |
 | `--write-png [PATH]` / `--write-svg [PATH]` | Write the icon as PNG or SVG |
 
@@ -54,7 +56,7 @@ for across its DPI scalings, so it never has to downsample a larger entry. 256 p
 is the format's ceiling: an ICO directory entry holds the width in a single byte.
 `--write-png` writes 1024 px for anywhere that is not Windows.
 
-## Building `Cadence.exe`
+## Building it
 
 PyInstaller bundles the interpreter, so the result runs on a machine with no
 Python installed. On Windows:
@@ -67,17 +69,75 @@ pyinstaller --onefile --noconsole --name Cadence --icon Cadence.ico Cadence.py
 
 `dist\Cadence.exe` is the finished program — a single file, nothing beside it.
 
-You can also let GitHub build it: `.github/workflows/build-cadence-exe.yml` runs
-those same commands on a Windows runner and uploads the exe as a build artifact.
-Trigger it from the **Actions** tab (**Build Cadence.exe** → **Run workflow**),
-then download `Cadence-windows` from the finished run. Pushing a tag that starts
-with `cadence-v` also attaches the exe to a GitHub release.
+On Linux or macOS, leave `--noconsole` off: Cadence is started from a terminal
+there, and its log is the only place problems would show up.
+
+```sh
+pip install pyinstaller
+python Cadence.py --write-png Cadence.png
+pyinstaller --onefile --name Cadence --add-data "Cadence.png:." Cadence.py
+```
+
+You can also let GitHub build all three: `.github/workflows/build-cadence-exe.yml`
+runs those same commands on Windows, Linux and macOS runners and uploads each as
+a build artifact. Trigger it from the **Actions** tab (**Build Cadence** →
+**Run workflow**), then download `Cadence-windows`, `Cadence-linux-x86_64` or
+`Cadence-macos-arm64` from the finished run. A commit message containing
+`[release]`, or a tag starting with `cadence-v`, also attaches all three to a
+GitHub release.
+
+The Linux build is made on the runner's current Ubuntu, so it needs a
+comparably recent glibc; on an older distribution, run `Cadence.py` directly
+instead — it only needs Python 3.10 or newer.
+
+### Code signing
+
+Windows SmartScreen warns about any executable it has not seen signed by a
+publisher it recognises, which is why the download shows a warning on first run.
+
+The *tools* that apply a signature are free and open source — Microsoft's
+`signtool` ships with the Windows SDK, and
+[osslsigncode](https://github.com/mtrojnar/osslsigncode) and
+[Jsign](https://ebourg.github.io/jsign/) do Authenticode from Linux and macOS.
+What costs money is the *trust*: Windows believes a signature because the
+certificate behind it chains to a CA in Microsoft's root programme. Signing with
+a certificate you generated yourself is worse than not signing — the file then
+claims a publisher nobody can verify, and SmartScreen blocks it harder.
+
+For an open-source project there is a free route to a real certificate:
+
+| Route | Cost | What it needs |
+| --- | --- | --- |
+| [SignPath Foundation](https://signpath.org/) | Free for OSS | An OSI-approved licence with no proprietary parts, an actively maintained project, and an application |
+| A CA such as Certum's open-source offering | Roughly £20–30/year | Identity verification |
+| [Azure Trusted Signing](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options) | About $10/month | An identity or business history check |
+
+The workflow supports two of these and needs no code change to switch on.
+
+**SignPath** keeps the private key on its own hardware and signs a build it
+fetches from this repository, so nothing secret ever reaches the runner. Set the
+secret `SIGNPATH_API_TOKEN` and the variable `SIGNPATH_ORGANIZATION_ID`;
+`SIGNPATH_PROJECT_SLUG` and `SIGNPATH_POLICY_SLUG` override the defaults
+(`cadence` and `release-signing`).
+
+**A certificate held directly**, as a `.pfx`: set `WINDOWS_CERT_PFX` (the file,
+base64-encoded) and `WINDOWS_CERT_PASSWORD`. Optionally set the variable
+`WINDOWS_TIMESTAMP_URL` to use a timestamp server other than DigiCert's —
+timestamping is what keeps a signature valid after the certificate expires.
+
+Set up neither and builds publish unsigned, exactly as now; the build says which
+route it took and what Windows makes of the result.
 
 ## What it does
 
 **Library.** Scans on every launch. A file is only re-parsed when its size or
 modification time changed, so the second launch is effectively instant. Deleted
 files drop out of the index. `F5` rescans on demand; **Full** re-reads everything.
+
+**The folder is watched.** Cadence checks the designated folder every few
+seconds and rescans by itself when a file has been added, removed or changed, so
+new music appears without a restart. `--no-watch`, or the preference, turns it
+off and leaves you with `F5`.
 
 **Formats.** Tags are read by hand-written parsers, so nothing needs installing:
 
@@ -116,6 +176,22 @@ survives the index being deleted or rebuilt, and it does not follow `library.db`
 to another machine. Local playlists remember their tracks by file path rather
 than by row number, which is why a rebuilt index does not lose them.
 
+**Smart playlists** are rules instead of a list: *genre is Electronic* **and**
+*year is more than 2010*, sorted by year, capped at 25. Twelve fields, text and
+numeric operators, match all or any. They re-evaluate themselves whenever the
+library changes, so a smart playlist never needs maintaining.
+
+**Editing tags.** `F2`, or **Edit Tags…** on the right-click menu. Title,
+artist, album, album artist, genre, composer, year, track and disc, on one track
+or on a whole selection at once — a field the selection disagrees on is left
+blank and marked, so leaving it alone keeps each track's own value.
+
+MP3 and FLAC can be written; every other format is read-only and says so. Only
+the tag block is rebuilt — the audio frames are copied through byte for byte and
+cover art is carried over — and the new file is written beside the original then
+moved into place in one step, so an interruption leaves the original intact. The
+file is read back afterwards and the index updated from what it actually says.
+
 **Organising.** Playlists, export to `.m3u8`, multi-select with `Ctrl`/`Shift`,
 sortable columns, search across title / artist / album / genre / filename, an
 artist → album tree, and "Reveal in File Manager".
@@ -127,8 +203,14 @@ switches, theme and accent, and the update check.
 limiter. The Web Audio graph is only built the first time you switch it on, so
 an untouched equalizer leaves playback exactly as it was.
 
-*Columns* — Artist, Album, Album artist, Genre, Track, Year, Format, Plays and
-Time can each be switched off. Number and Title always stay. A hidden tag is
+*Gapless and crossfade* — with gapless on, the next track is fetched and decoded
+about a second before the current one ends and started as it runs out, so
+nothing is clipped and nothing pauses. Crossfade, 0 to 12 seconds, plays both
+together and ramps one down as the other comes up. Two audio decks take turns to
+do it.
+
+*Columns* — Artist, Album, Album artist, Genre, Composer, Track, Year, Format,
+Plays and Time can each be switched off. Number and Title always stay. A hidden tag is
 still read, still searchable and still shown in the Details panel; it is only
 kept out of the list.
 
@@ -153,6 +235,7 @@ and the whole check can be switched off.
 | `Space` · `Ctrl+←` `→` | Play-pause · previous · next |
 | `S` · `R` · `M` | Shuffle · repeat · mute |
 | `Enter` · `Ctrl+A` · `Ctrl+C` · `Del` | Play selection · select all · copy path · remove |
+| `F2` | Edit the tags of the selection |
 | `F5` | Rescan |
 
 ## If the icon looks stale on Windows
@@ -173,15 +256,26 @@ the one this repository ships; you can confirm it by running
 
 ## Your files
 
-Cadence opens your audio files read-only. It never writes tags, renames, moves or
-deletes anything in your music folder.
+Cadence opens your audio files read-only, with exactly one exception: **Edit
+Tags…**, which you have to ask for. It never renames, moves or deletes anything
+in your music folder, and it never touches a file you did not select.
 
-Everything it *does* write lives in one directory —
+When it does write a tag, it rewrites only the tag block — the audio frames are
+copied through byte for byte and cover art is carried over — into a new file
+beside the original, which is then moved into place in one step. An interrupted
+write therefore leaves the original file exactly as it was.
+
+Everything else it writes lives in one directory —
 `%APPDATA%\Cadence` on Windows, `~/.config/cadence` on Linux,
 `~/Library/Application Support/Cadence` on macOS — holding `library.db`
 (a SQLite index with the cached tags, playlists and play counts) and a browser
 profile for the app window. Deleting it discards the cache and playlists and
 nothing else.
+
+**Portable mode** puts that directory beside the program instead: pass
+`--portable`, or drop a file named `cadence-portable.txt` next to the
+executable, and the index lands in `Cadence-data` in the same folder. A USB
+stick is then self-contained, and your user profile is left untouched.
 
 The server binds to `127.0.0.1` only, never to your network. Each run mints a
 random token that requests must carry, and the `Host` header is checked, so
@@ -242,7 +336,8 @@ out, whichever you prefer:
 
 ## Releases
 
-Every version, what changed in it, and the Windows executable built for it:
+Every version, what changed in it, and the executables built for it —
+Windows, Linux and macOS:
 [CHANGELOG.md](CHANGELOG.md) ·
 [Releases](https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases)
 

@@ -1,4 +1,4 @@
-name: Build Cadence.exe
+name: Build Cadence
 
 on:
   # workflow_dispatch only appears in the Actions UI once this file is on the
@@ -22,26 +22,25 @@ permissions:
   contents: write
 
 jobs:
-  windows:
-    runs-on: windows-latest
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      publish: ${{ steps.meta.outputs.publish }}
     defaults:
       run:
         working-directory: cadence
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Install PyInstaller
-        run: pip install --disable-pip-version-check pyinstaller
-
       - name: Sanity-check the source
         shell: python
         run: |
-          import ast, pathlib, re, subprocess, sys
+          import ast, pathlib, re, sys
 
           source = pathlib.Path("Cadence.py").read_text(encoding="utf-8")
           ast.parse(source)
@@ -66,47 +65,36 @@ jobs:
                   f"CHANGELOG.md should open with '## {version}', found "
                   f"'{heads[0] if heads else 'nothing'}'")
 
+          # Every script chunk has to reach the page, or the app boots into a
+          # ReferenceError that no amount of Python testing would catch.
+          page = re.search(r"def render_page\(.*?\n\n\n", source, re.S).group(0)
+          for chunk in re.findall(r"^(UI_SCRIPT_\w+) = ", source, re.M):
+              if chunk not in page:
+                  problems.append(f"{chunk} is never added to render_page()")
+
           if problems:
               print("::error::" + "; ".join(problems))
               sys.exit(1)
           print(f"version {version} agrees across Cadence.py, version.txt and CHANGELOG.md")
 
-      - name: Generate the icon
-        run: python Cadence.py --write-icon Cadence.ico
-
       - name: Work out the release tag
         id: meta
-        shell: pwsh
-        run: |
-          $v = (Select-String -Path Cadence.py -Pattern '^APP_VERSION = "(.+)"').Matches[0].Groups[1].Value
-          $tag = if ('${{ github.ref_type }}' -eq 'tag') { '${{ github.ref_name }}' } else { "cadence-v$v" }
-          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "tag=$tag"   | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          Write-Host "Cadence reports version $v -> release tag $tag"
-
-      - name: Clear a stale release for this tag
-        if: contains(github.event.head_commit.message, '[release]') || inputs.republish
-        shell: pwsh
         env:
-          GH_TOKEN: ${{ github.token }}
+          # One condition, decided once: a tag, a [release] marker in the commit
+          # message, or the Republish button.
+          PUBLISH: ${{ github.ref_type == 'tag'
+            || contains(github.event.head_commit.message, '[release]')
+            || inputs.republish }}
         run: |
-          $tag = '${{ steps.meta.outputs.tag }}'
-          # A marker-driven release re-points the tag at the commit being built.
-          # If a release already carries this tag it may sit on another commit,
-          # and an existing tag cannot be moved by the releases API, so drop it.
-          gh release view $tag --json tagName *> $null
-          if ($LASTEXITCODE -eq 0) {
-            Write-Host "removing existing release and tag $tag"
-            gh release delete $tag --yes --cleanup-tag
-          } else {
-            Write-Host "no existing release for $tag"
-          }
-          $global:LASTEXITCODE = 0
-          exit 0
+          v=$(sed -n 's/^APP_VERSION = "\(.*\)"/\1/p' Cadence.py | head -1)
+          if [ '${{ github.ref_type }}' = 'tag' ]; then tag='${{ github.ref_name }}'; else tag="cadence-v$v"; fi
+          [ "$PUBLISH" = "true" ] && publish=true || publish=false
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag"   >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "Cadence reports version $v -> release tag $tag (publish: $publish)"
 
       - name: Compose release notes from the changelog
-        if: github.ref_type == 'tag' || contains(github.event.head_commit.message, '[release]')
-          || inputs.republish
         shell: python
         env:
           REPO: ${{ github.repository }}
@@ -131,15 +119,25 @@ jobs:
           install = "\n".join([
               "### Download",
               "",
-              "**`Cadence.exe`** - self-contained, no Python needed. Windows 64-bit.",
+              "| File | Platform |",
+              "| --- | --- |",
+              "| **`Cadence.exe`** | Windows 64-bit |",
+              "| **`Cadence-linux-x86_64.tar.gz`** | Linux 64-bit |",
+              "| **`Cadence-macos-arm64.tar.gz`** | macOS, Apple silicon |",
               "",
-              "Windows SmartScreen warns on first run because the executable is not",
+              "All three are self-contained - no Python needed.",
+              "",
+              "Windows SmartScreen warns on first run unless the executable is",
               "code-signed: choose **More info** then **Run anyway**.",
+              "",
+              "On macOS and Linux, unpack and run it from a terminal; macOS will ask",
+              "you to allow it in **System Settings > Privacy & Security** the first time.",
               "",
               "On first launch it asks for your music folder, or pass it directly:",
               "",
               "```",
               'Cadence.exe --folder "D:\\Music"',
+              "./Cadence --folder ~/Music",
               "```",
               "",
               "### From source",
@@ -151,8 +149,10 @@ jobs:
               'python Cadence.py --folder "D:\\Music"',
               "```",
               "",
-              "Your audio files are opened read-only. The index and playlists live in",
-              "`%APPDATA%\\Cadence`.",
+              "Your audio files are opened read-only unless you edit tags. The index",
+              "and playlists live in `%APPDATA%\\Cadence`, `~/.config/cadence` or",
+              "`~/Library/Application Support/Cadence` - or beside the program in",
+              "portable mode.",
           ])
 
           out = pathlib.Path("notes")
@@ -177,6 +177,29 @@ jobs:
               (out / (version + ".md")).write_text(page, encoding="utf-8")
               print("composed %s%s" % (tag, " (follows %s)" % older if older else ""))
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: cadence/notes/*.md
+          if-no-files-found: error
+
+  windows:
+    needs: check
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: cadence
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PyInstaller
+        run: pip install --disable-pip-version-check pyinstaller
+
+      - name: Generate the icon
+        run: python Cadence.py --write-icon Cadence.ico
+
       - name: Build the one-file executable
         run: >
           pyinstaller --onefile --noconsole
@@ -185,6 +208,76 @@ jobs:
           --add-data "Cadence.ico;."
           --version-file version.txt
           Cadence.py
+
+      # ---- signing -------------------------------------------------------
+      # Two routes, both optional, neither one blocking a build. SignPath keeps
+      # the key on its own hardware and signs a build it has fetched from this
+      # repository, so nothing secret is ever on the runner; a .pfx in the
+      # secrets is the route for a certificate held directly. Configure either
+      # and builds are signed from then on; configure neither and they publish
+      # unsigned, which still runs.
+
+      - name: Upload the unsigned build for SignPath
+        id: unsigned
+        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cadence-windows-unsigned
+          path: cadence/dist/Cadence.exe
+          if-no-files-found: error
+
+      - name: Sign with SignPath
+        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'cadence' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG || 'release-signing' }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: cadence/dist
+
+      - name: Sign with a certificate of our own
+        if: ${{ secrets.SIGNPATH_API_TOKEN == '' && secrets.WINDOWS_CERT_PFX != '' }}
+        shell: pwsh
+        env:
+          CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
+          CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+          TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'cadence-signing.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CERT_PFX))
+          $url = if ($env:TIMESTAMP_URL) { $env:TIMESTAMP_URL } else { 'http://timestamp.digicert.com' }
+          $kit = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe' |
+                 Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $kit) { throw 'signtool.exe not found on the runner' }
+          try {
+            # A timestamp keeps the signature valid after the certificate expires.
+            & $kit.FullName sign /fd SHA256 /td SHA256 /tr $url `
+              /f $pfx /p $env:CERT_PASSWORD dist\Cadence.exe
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed with $LASTEXITCODE" }
+            Write-Host 'signed'
+          } finally {
+            Remove-Item $pfx -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Report what the signature says
+        shell: pwsh
+        run: |
+          # Whatever route ran, ask Windows itself what it makes of the file.
+          $sig = Get-AuthenticodeSignature dist\Cadence.exe
+          Write-Host "status:    $($sig.Status)"
+          Write-Host "signer:    $($sig.SignerCertificate.Subject)"
+          Write-Host "timestamp: $($sig.TimeStamperCertificate.Subject)"
+          if ($sig.Status -eq 'NotSigned') {
+            Write-Host '::notice::Publishing unsigned - Windows SmartScreen will warn on first run.'
+            Write-Host 'To sign, see "Code signing" in cadence/README.md.'
+          } elseif ($sig.Status -ne 'Valid') {
+            throw "the signature did not verify: $($sig.StatusMessage)"
+          } else {
+            Write-Host '::notice::Signed and verified.'
+          }
 
       - name: Smoke-test the executable
         shell: pwsh
@@ -203,40 +296,142 @@ jobs:
             cadence/Cadence.ico
           if-no-files-found: error
 
-      - name: Publish the release
-        if: github.ref_type == 'tag' || contains(github.event.head_commit.message, '[release]')
-          || inputs.republish
-        uses: softprops/action-gh-release@v2
+  unix:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: linux-x86_64
+          - os: macos-latest
+            label: macos-arm64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: cadence
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          tag_name: ${{ steps.meta.outputs.tag }}
-          target_commitish: ${{ github.sha }}
-          name: Cadence ${{ steps.meta.outputs.version }}
-          files: |
-            cadence/dist/Cadence.exe
-            cadence/Cadence.ico
-          body_path: cadence/notes/${{ steps.meta.outputs.version }}.md
+          python-version: '3.12'
+      - name: Install PyInstaller
+        run: pip install --disable-pip-version-check pyinstaller
 
-      - name: Re-link the earlier releases
-        if: github.ref_type == 'tag' || contains(github.event.head_commit.message, '[release]')
-          || inputs.republish
-        shell: pwsh
+      - name: Generate the icon
+        run: python Cadence.py --write-png Cadence.png
+
+      - name: Build the one-file executable
+        # No --noconsole here: on Linux and macOS Cadence is started from a
+        # terminal, and its log is the only place problems would show up.
+        run: >
+          pyinstaller --onefile
+          --name Cadence
+          --add-data "Cadence.png:."
+          Cadence.py
+
+      - name: Smoke-test the executable
+        run: |
+          ./dist/Cadence --version
+          ./dist/Cadence --write-png probe.png
+          test -s probe.png || { echo "Cadence produced no output"; exit 1; }
+          ls -l dist/Cadence probe.png
+
+      - name: Check it actually serves the library
+        run: |
+          mkdir -p smoke/Artist/Album
+          python - <<'PY'
+          import struct, wave
+          with wave.open("smoke/Artist/Album/01 - Tone.wav", "wb") as w:
+              w.setnchannels(1); w.setsampwidth(2); w.setframerate(8000)
+              w.writeframes(b"".join(struct.pack("<h", 0) for _ in range(8000)))
+          PY
+          ./dist/Cadence --no-browser --keep-alive --no-watch --port 8790 \
+            --folder "$PWD/smoke" > run.log 2>&1 &
+          for i in $(seq 1 60); do grep -q 'listening on' run.log && break; sleep 0.5; done
+          cat run.log
+          token=$(sed -n 's|.*?t=||p' run.log | tr -d '\r')
+          [ -n "$token" ] || { echo "server never started"; exit 1; }
+          sleep 2
+          count=$(curl -sS -H "X-Cadence-Token: $token" \
+                    "http://127.0.0.1:8790/api/tracks" | python -c \
+                    'import json,sys; print(len(json.load(sys.stdin)["tracks"]))')
+          echo "indexed $count track(s)"
+          curl -sS -X POST -H "X-Cadence-Token: $token" -H 'Content-Type: application/json' \
+            -d '{}' "http://127.0.0.1:8790/api/quit" > /dev/null || true
+          [ "$count" = "1" ] || { echo "expected the one test track"; exit 1; }
+
+      - name: Package it
+        run: |
+          tar -czf "Cadence-${{ matrix.label }}.tar.gz" -C dist Cadence
+          ls -l "Cadence-${{ matrix.label }}.tar.gz"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cadence-${{ matrix.label }}
+          path: cadence/Cadence-${{ matrix.label }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: [check, windows, unix]
+    if: needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: downloads
+
+      - name: Lay the files out
+        run: |
+          mkdir -p out
+          # -unsigned is the copy handed to the signing service; the signed one
+          # comes back into Cadence-windows and is the one people download.
+          find downloads -type f -not -path '*-unsigned/*' \
+            \( -name 'Cadence.exe' -o -name 'Cadence.ico' -o -name '*.tar.gz' \) \
+            -exec cp {} out/ \;
+          ls -l out
+
+      - name: Clear a stale release for this tag
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.check.outputs.tag }}
+        run: |
+          # A marker-driven release re-points the tag at the commit being built.
+          # If a release already carries this tag it may sit on another commit,
+          # and an existing tag cannot be moved by the releases API, so drop it.
+          if gh release view "$TAG" --json tagName > /dev/null 2>&1; then
+            echo "removing existing release and tag $TAG"
+            gh release delete "$TAG" --yes --cleanup-tag
+          else
+            echo "no existing release for $TAG"
+          fi
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.check.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Cadence ${{ needs.check.outputs.version }}
+          files: out/*
+          body_path: downloads/release-notes/${{ needs.check.outputs.version }}.md
+
+      - name: Re-link the earlier releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CURRENT: ${{ needs.check.outputs.version }}
         run: |
           # Earlier releases were published before later versions existed, so their
           # notes cannot name what follows. Rewrite them from the same changelog.
-          Get-ChildItem notes/*.md | ForEach-Object {
-            $version = $_.BaseName
-            if ($version -ne '${{ steps.meta.outputs.version }}') {
-              $tag = "cadence-v$version"
-              gh release view $tag --json tagName *> $null
-              if ($LASTEXITCODE -eq 0) {
-                gh release edit $tag --notes-file $_.FullName
-                Write-Host "refreshed notes for $tag"
-              } else {
-                Write-Host "no release for $tag, skipping"
-              }
-            }
-          }
-          $global:LASTEXITCODE = 0
-          exit 0
+          for file in downloads/release-notes/*.md; do
+            version=$(basename "$file" .md)
+            [ "$version" = "$CURRENT" ] && continue
+            tag="cadence-v$version"
+            if gh release view "$tag" --json tagName > /dev/null 2>&1; then
+              gh release edit "$tag" --notes-file "$file"
+              echo "refreshed notes for $tag"
+            else
+              echo "no release for $tag, skipping"
+            fi
+          done
