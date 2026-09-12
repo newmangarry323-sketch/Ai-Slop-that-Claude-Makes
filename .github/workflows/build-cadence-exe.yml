@@ -186,6 +186,11 @@ jobs:
   windows:
     needs: check
     runs-on: windows-latest
+    # The secrets context cannot be read from a step's `if`, so which signing
+    # route is available is decided here, once.
+    env:
+      SIGNPATH_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+      CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
     defaults:
       run:
         working-directory: cadence
@@ -219,7 +224,7 @@ jobs:
 
       - name: Upload the unsigned build for SignPath
         id: unsigned
-        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+        if: ${{ env.SIGNPATH_TOKEN != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: Cadence-windows-unsigned
@@ -227,7 +232,7 @@ jobs:
           if-no-files-found: error
 
       - name: Sign with SignPath
-        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+        if: ${{ env.SIGNPATH_TOKEN != '' }}
         uses: signpath/github-action-submit-signing-request@v2
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -239,10 +244,9 @@ jobs:
           output-artifact-directory: cadence/dist
 
       - name: Sign with a certificate of our own
-        if: ${{ secrets.SIGNPATH_API_TOKEN == '' && secrets.WINDOWS_CERT_PFX != '' }}
+        if: ${{ env.SIGNPATH_TOKEN == '' && env.CERT_PFX != '' }}
         shell: pwsh
         env:
-          CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
           CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
           TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
         run: |
