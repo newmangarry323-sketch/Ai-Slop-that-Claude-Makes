@@ -6,3 +6,7 @@ dist/
 
 # release notes are generated from CHANGELOG.md during the build
 cadence/notes/
+
+# Nyx writes its runtime state here; the folder is tracked, the contents are not
+nyx/resources/[nyx]/nyx_lib/data/*.json
+nyx/resources/[nyx]/nyx_lib/data/*.broken

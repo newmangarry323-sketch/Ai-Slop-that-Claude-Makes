@@ -1,0 +1,252 @@
+/* nyx_menu — layout only. Every colour, radius and shadow comes from
+   nui://nyx_lib/web/theme.css, so this file stays small on purpose. */
+
+.shell {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 26px 60px 34px;
+}
+
+.shell.is-closing { animation: nyx-fade var(--nyx-fast) reverse both; }
+
+/* Lift everything that is not the backdrop above it. */
+.shell > .nyx-topbar,
+.shell > .body { position: relative; z-index: 1; }
+
+.body {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: 14px;
+    min-height: 0;
+    flex: 1;
+}
+
+/* `.is-misc` is set on the body while the Miscellaneous tab is open. The tab's
+   own three-column layout lives in `.misc` below; this class is left as a hook
+   for anyone who wants to restyle the rail on that tab specifically. */
+
+.rail-panel {
+    display: flex;
+    flex-direction: column;
+    padding: 6px;
+    min-height: 0;
+    align-self: start;
+    max-height: 100%;
+}
+
+.rail-panel .nyx-rail { min-height: 0; }
+
+.content {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 0;
+    padding-right: 4px;
+}
+
+/* ---- Locations and weapons ---------------------------------------------- */
+
+.group { display: flex; flex-direction: column; gap: 11px; }
+
+/* Generated tile behind a card that has no image of its own. The hue is
+   derived from the spot id in app.js so a given card is always the same
+   colour — it reads as deliberate rather than random. */
+/* Placeholder glyph inside the profile avatar when there is no picture. */
+.nyx-avatar { display: grid; place-items: center; color: var(--nyx-text-mute); }
+.avatar-glyph { width: 17px; height: 17px; }
+
+.tile-fallback {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: 27px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    color: rgba(255, 255, 255, .72);
+    text-shadow: 0 2px 10px rgba(0, 0, 0, .6);
+}
+
+/* ---- Miscellaneous ------------------------------------------------------ */
+
+.misc {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 262px 218px;
+    gap: 14px;
+    align-items: start;
+}
+
+@media (max-width: 1500px) {
+    .misc { grid-template-columns: minmax(0, 1fr) 262px; }
+}
+
+@media (max-width: 1180px) {
+    .misc { grid-template-columns: minmax(0, 1fr); }
+}
+
+.misc-col { display: flex; flex-direction: column; gap: 11px; min-width: 0; }
+
+/* HUD style chooser: four preview cards in a 2x2. */
+.hud-styles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 13px; }
+
+.hud-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: 152px;
+    padding: 18px;
+    border: 1px solid var(--nyx-line);
+    border-radius: var(--nyx-r);
+    background: rgba(255, 255, 255, .022);
+    transition: border-color var(--nyx-fast), background var(--nyx-fast), box-shadow var(--nyx-fast);
+}
+
+.hud-card:hover { background: var(--nyx-raise-2); }
+
+.hud-card.is-active {
+    border-color: var(--nyx-accent);
+    background:
+        radial-gradient(90% 90% at 50% 120%, rgba(var(--nyx-accent-rgb), .30), transparent 70%),
+        rgba(var(--nyx-accent-rgb), .05);
+    box-shadow: 0 0 26px rgba(var(--nyx-accent-rgb), .26);
+}
+
+.hud-card-tag {
+    position: absolute;
+    left: 14px;
+    bottom: 11px;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--nyx-text-dim);
+}
+
+.hud-card.is-active .hud-card-tag { color: var(--nyx-text); }
+
+.hud-preview { display: flex; flex-direction: column; align-items: center; gap: 7px; pointer-events: none; }
+
+/* Preview 1 — the compact pill row */
+.pv-pill {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 6px 9px;
+    border-radius: var(--nyx-r-sm);
+    background: rgba(0, 0, 0, .45);
+    border: 1px solid var(--nyx-line);
+}
+
+.pv-chip {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: var(--nyx-r-xs);
+    background: var(--nyx-accent);
+    color: #fff;
+    box-shadow: 0 0 12px var(--nyx-accent-halo);
+}
+
+.pv-chip svg { width: 13px; height: 13px; }
+.pv-chip--muted { background: transparent; color: var(--nyx-text-mute); box-shadow: none; }
+.pv-chip--outline { background: transparent; border: 1px solid var(--nyx-line-hard); color: var(--nyx-text-dim); }
+
+/* Preview 2 — separate rings */
+.pv-rings { display: flex; align-items: center; gap: 11px; }
+
+.pv-ring {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 2px solid var(--nyx-accent);
+    color: var(--nyx-accent);
+    box-shadow: 0 0 14px var(--nyx-accent-halo);
+}
+
+.pv-ring svg { width: 13px; height: 13px; }
+.pv-ring--muted { border-color: var(--nyx-line-hard); color: var(--nyx-text-mute); box-shadow: none; }
+
+/* Preview 3 — stacked bars */
+.pv-bars { display: flex; flex-direction: column; gap: 5px; width: 100%; max-width: 186px; }
+
+.pv-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    height: 21px;
+    padding: 0 9px;
+    border-radius: var(--nyx-r-xs);
+    border: 1px solid var(--nyx-line);
+    background: rgba(255, 255, 255, .035);
+    font-size: 9.5px;
+    font-weight: 700;
+    color: var(--nyx-text-dim);
+}
+
+.pv-bar svg { width: 10px; height: 10px; }
+.pv-bar.is-accent { background: var(--nyx-accent); border-color: transparent; color: #fff; box-shadow: 0 0 14px var(--nyx-accent-halo); }
+
+/* Preview 4 — pixel text */
+.pv-text { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.pv-text span { font-family: var(--nyx-font-pixel); font-size: 12px; font-weight: 700; letter-spacing: 1.6px; }
+.pv-text .is-accent { color: var(--nyx-accent); text-shadow: 0 0 12px var(--nyx-accent-halo); }
+
+/* ---- Crosshair editor --------------------------------------------------- */
+
+.xhair-preview {
+    position: relative;
+    display: grid;
+    place-items: center;
+    height: 210px;
+    border: 1px solid var(--nyx-line);
+    border-radius: var(--nyx-r);
+    background:
+        radial-gradient(60% 60% at 50% 50%, rgba(var(--nyx-accent-rgb), .10), transparent 70%),
+        repeating-conic-gradient(rgba(255, 255, 255, .022) 0% 25%, transparent 0% 50%) 50% / 22px 22px;
+    overflow: hidden;
+}
+
+.xhair-stage { position: relative; width: 100%; height: 100%; }
+
+.seg { display: flex; gap: 5px; }
+
+.seg button {
+    flex: 1;
+    min-width: 0;
+    height: 33px;
+    padding: 0 4px;
+    border: 1px solid var(--nyx-line);
+    border-radius: var(--nyx-r-xs);
+    background: rgba(255, 255, 255, .022);
+    color: var(--nyx-text-dim);
+    font-size: 11.5px;
+    font-weight: 600;
+    /* Four equal buttons in a 262px column leaves ~58px each; "T-Shape" wraps
+       to two lines without this and the row grows a second line taller. */
+    white-space: nowrap;
+    transition: color var(--nyx-fast), background var(--nyx-fast), border-color var(--nyx-fast);
+}
+
+.seg button:hover { color: var(--nyx-text); background: var(--nyx-raise-2); }
+.seg button.is-active { color: var(--nyx-text); background: var(--nyx-accent-wash); border-color: var(--nyx-accent-edge); }
+
+.slider-row { display: flex; flex-direction: column; gap: 7px; }
+
+.slider-head {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--nyx-text-dim);
+}
+
+.slider-head b { color: var(--nyx-text); font-variant-numeric: tabular-nums; }
+
+.pad { padding: 13px; }
+.pad-tight { padding: 11px; }

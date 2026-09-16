@@ -1,0 +1,150 @@
+/* nyx_inventory — two slot grids with an action column between them. */
+
+.shell { position: fixed; inset: 0; display: grid; place-items: center; }
+
+.panes {
+    position: relative;
+    z-index: 1;               /* explicitly above .nyx-backdrop */
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 96px minmax(0, 1fr);
+    /* minmax(0, 1fr) rather than the default `auto`: an auto row sizes to its
+       content, so forty slots would lay out past max-height and spill off the
+       bottom of the screen. Capping the row is what lets .pane-grid scroll
+       instead. */
+    grid-template-rows: minmax(0, 1fr);
+    gap: 14px;
+    width: min(1220px, 92vw);
+    height: 84vh;
+    animation: nyx-pop var(--nyx-slow) both;
+}
+
+.pane { display: flex; flex-direction: column; min-height: 0; padding: 14px; gap: 13px; }
+
+.pane-head { display: flex; align-items: center; gap: 11px; }
+
+.pane-icon {
+    display: grid;
+    place-items: center;
+    width: 27px;
+    height: 27px;
+    flex: none;
+    border-radius: var(--nyx-r-xs);
+    background: var(--nyx-raise-2);
+    color: var(--nyx-text-dim);
+}
+
+.pane-icon svg { width: 14px; height: 14px; }
+.pane-title { flex: 1; font-size: 14.5px; font-weight: 700; }
+
+.pane-count {
+    padding: 4px 9px;
+    border: 1px solid var(--nyx-line);
+    border-radius: var(--nyx-r-xs);
+    background: rgba(0, 0, 0, .35);
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--nyx-text-dim);
+    font-variant-numeric: tabular-nums;
+}
+
+.pane-count b { color: var(--nyx-text); }
+
+/* Weight bar under the header. */
+.pane-weight { height: 3px; border-radius: var(--nyx-r-pill); background: var(--nyx-raise-2); overflow: hidden; }
+
+.pane-weight i {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--nyx-accent);
+    box-shadow: 0 0 10px var(--nyx-accent-halo);
+    transition: width var(--nyx-mid);
+}
+
+.pane-weight.is-heavy i { background: var(--nyx-bad); box-shadow: 0 0 10px rgba(255, 77, 94, .45); }
+
+.pane-grid { min-height: 0; padding-right: 4px; }
+.pane-grid .nyx-slots { grid-template-columns: repeat(5, 1fr); }
+
+@media (max-width: 1100px) { .pane-grid .nyx-slots { grid-template-columns: repeat(4, 1fr); } }
+
+.slot-initials {
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: rgba(255, 255, 255, .88);
+    text-shadow: 0 2px 6px rgba(0, 0, 0, .55);
+}
+
+/* ---- Middle action column ----------------------------------------------- */
+.middle {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 11px;
+    padding: 14px 10px;
+    align-self: center;
+}
+
+.middle-info {
+    display: grid;
+    place-items: center;
+    height: 36px;
+    border-radius: var(--nyx-r-sm);
+    background: var(--nyx-raise);
+    color: var(--nyx-text-dim);
+}
+
+.middle-info svg { width: 16px; height: 16px; }
+
+.qty {
+    display: flex;
+    align-items: center;
+    height: 44px;
+    border: 1px solid var(--nyx-line);
+    border-radius: var(--nyx-r-sm);
+    background: rgba(0, 0, 0, .34);
+    overflow: hidden;
+}
+
+.qty input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    border: 0;
+    outline: 0;
+    background: none;
+    text-align: center;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--nyx-accent);
+    font-variant-numeric: tabular-nums;
+    /* Chromium's spinners fight the layout at this width. */
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.qty input::-webkit-outer-spin-button,
+.qty input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+.middle .nyx-btn--stack { padding: 13px 8px; }
+
+/* ---- Tooltip ------------------------------------------------------------ */
+.tip {
+    position: fixed;
+    z-index: 50;
+    min-width: 168px;
+    max-width: 258px;
+    padding: 11px 13px;
+    border: 1px solid var(--nyx-accent-edge);
+    border-radius: var(--nyx-r-sm);
+    background: rgba(10, 10, 13, .96);
+    box-shadow: var(--nyx-shadow);
+    pointer-events: none;
+}
+
+.tip b { display: block; font-size: 13.5px; margin-bottom: 4px; }
+.tip span { display: block; font-size: 11.5px; color: var(--nyx-text-dim); line-height: 1.5; }
+
+/* ---- Empty second pane -------------------------------------------------- */
+.pane.is-empty { justify-content: center; }

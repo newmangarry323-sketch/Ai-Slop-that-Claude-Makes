@@ -1,0 +1,188 @@
+/* nyx_dealership — a left rail and a bottom bar, with the game visible between
+   them. Nothing covers the centre of the screen. */
+
+.shell { position: fixed; inset: 0; }
+
+/* ---- Left rail ---------------------------------------------------------- */
+.side {
+    position: absolute;
+    top: 28px;
+    left: 28px;
+    bottom: 132px;
+    width: 286px;
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+    gap: 11px;
+    animation: nyx-rise var(--nyx-slow) both;
+}
+
+.side-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.side-head b { font-size: 14.5px; font-weight: 700; }
+
+.side-icon {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: var(--nyx-r-xs);
+    background: var(--nyx-raise-2);
+    color: var(--nyx-text-dim);
+}
+
+.side-icon svg { width: 14px; height: 14px; }
+
+.side-close { height: 30px; padding: 0 12px; font-size: 12.5px; }
+.side-search { flex: none; }
+.side-list { display: flex; flex-direction: column; gap: 3px; min-height: 0; padding-right: 3px; }
+
+/* Category row: label left, count right. */
+.cat {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    height: 35px;
+    padding: 0 13px;
+    border: 1px solid transparent;
+    border-radius: var(--nyx-r-sm);
+    color: var(--nyx-text-dim);
+    font-size: 13.5px;
+    font-weight: 600;
+    text-align: left;
+    transition: color var(--nyx-fast), background var(--nyx-fast), border-color var(--nyx-fast);
+}
+
+.cat:hover { color: var(--nyx-text); background: var(--nyx-raise); }
+.cat.is-active { color: var(--nyx-text); background: var(--nyx-accent-wash); border-color: var(--nyx-accent-edge); }
+.cat i { font-style: normal; font-size: 11.5px; font-weight: 700; color: var(--nyx-text-mute); }
+.cat.is-active i { color: var(--nyx-text); }
+
+/* Vehicle row inside an opened category. */
+.veh {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    height: 34px;
+    padding: 0 13px;
+    border: 1px solid transparent;
+    border-radius: var(--nyx-r-sm);
+    color: var(--nyx-text-dim);
+    font-size: 13px;
+    font-weight: 600;
+    text-align: left;
+    transition: color var(--nyx-fast), background var(--nyx-fast), border-color var(--nyx-fast);
+}
+
+.veh:hover { color: var(--nyx-text); background: var(--nyx-raise); }
+
+.veh.is-active {
+    color: #fff;
+    background: linear-gradient(135deg, rgb(var(--nyx-accent-rgb)), rgba(var(--nyx-accent-rgb), .55));
+    border-color: transparent;
+    box-shadow: 0 0 18px var(--nyx-accent-halo);
+}
+
+.veh-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.veh-price { font-size: 11.5px; font-weight: 700; color: var(--nyx-accent); }
+.veh.is-active .veh-price { color: #fff; }
+.veh.is-owned .veh-name::after { content: ' ✓'; color: var(--nyx-good); }
+
+/* Pager above the list. */
+.pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    height: 32px;
+    padding: 0 6px 0 13px;
+    border: 1px solid var(--nyx-accent-edge);
+    border-radius: var(--nyx-r-sm);
+    background: var(--nyx-accent-wash);
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--nyx-text);
+}
+
+.pager-nav {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px 4px;
+    border-radius: var(--nyx-r-xs);
+    background: rgba(0, 0, 0, .3);
+    font-size: 11.5px;
+    color: var(--nyx-text-dim);
+}
+
+.pager-nav button {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    color: var(--nyx-text-dim);
+    transition: color var(--nyx-fast), background var(--nyx-fast);
+}
+
+.pager-nav button:hover { color: var(--nyx-text); background: var(--nyx-raise-2); }
+.pager-nav button:disabled { opacity: .3; pointer-events: none; }
+.pager-nav svg { width: 12px; height: 12px; }
+
+/* ---- Bottom bar --------------------------------------------------------- */
+.bar {
+    position: absolute;
+    left: 28px;
+    right: 28px;
+    bottom: 26px;
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    height: 92px;
+    padding: 0 22px 0 0;
+    overflow: hidden;
+    animation: nyx-rise var(--nyx-slow) both;
+}
+
+.buy {
+    height: 100%;
+    min-width: 214px;
+    padding: 0 34px;
+    border: 0;
+    border-radius: 0;
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: 3px;
+}
+
+.bar-name { display: flex; flex-direction: column; gap: 3px; min-width: 190px; }
+.bar-name b { font-size: 20px; font-weight: 700; }
+.bar-name span { font-size: 15px; font-weight: 700; color: var(--nyx-accent); }
+.bar-meters { display: flex; align-items: center; gap: 26px; margin-left: auto; }
+.bar-actions { display: flex; align-items: center; gap: 10px; }
+.bar-actions .nyx-btn { flex-direction: column; gap: 6px; height: auto; padding: 11px 16px; font-size: 11.5px; }
+.bar-actions .nyx-btn svg { width: 17px; height: 17px; }
+.bar-empty { flex: 1; padding-left: 26px; font-size: 14px; color: var(--nyx-text-mute); }
+
+/* ---- Test drive clock --------------------------------------------------- */
+.test-drive {
+    position: absolute;
+    top: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 11px 20px;
+    border: 1px solid var(--nyx-accent-edge);
+    border-radius: var(--nyx-r);
+    background: rgba(10, 10, 13, .88);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 0 28px var(--nyx-accent-halo);
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.test-drive b { font-family: var(--nyx-font-pixel); color: var(--nyx-accent); font-variant-numeric: tabular-nums; }

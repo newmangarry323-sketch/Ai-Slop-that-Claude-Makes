@@ -1,0 +1,279 @@
+/* nyx_hud — positioning and the few shapes the shared theme does not cover.
+   Nothing here takes pointer events: the HUD must never eat a click. */
+
+body > div { pointer-events: none; }
+
+/* ---- FPS, top left ------------------------------------------------------ */
+.hud-fps {
+    position: fixed;
+    top: 14px;
+    left: 18px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--nyx-text-dim);
+    text-shadow: 0 1px 4px rgba(0, 0, 0, .8);
+}
+
+/* ---- Money / job, top right --------------------------------------------- */
+.hud-money {
+    position: fixed;
+    top: 14px;
+    right: 18px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+}
+
+/* Style 4 — pixel text, no chrome. */
+.hud-money.is-pixel .m-row {
+    font-family: var(--nyx-font-pixel);
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: var(--nyx-text);
+    text-shadow: 0 2px 6px rgba(0, 0, 0, .9);
+}
+
+.hud-money.is-pixel .m-row.is-accent {
+    color: var(--nyx-accent);
+    text-shadow: 0 0 16px var(--nyx-accent-halo);
+}
+
+.hud-money.is-pixel .m-icon { display: none; }
+
+/* Style 3 — stacked bars. */
+.hud-money.is-bars .m-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    min-width: 186px;
+    height: 27px;
+    padding: 0 11px;
+    border: 1px solid var(--nyx-line);
+    border-radius: var(--nyx-r-xs);
+    background: rgba(10, 10, 13, .72);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--nyx-text-dim);
+}
+
+.hud-money.is-bars .m-row.is-accent {
+    background: var(--nyx-accent);
+    border-color: transparent;
+    color: #fff;
+    box-shadow: 0 0 18px var(--nyx-accent-halo);
+}
+
+.hud-money.is-bars .m-icon { width: 13px; height: 13px; flex: none; }
+
+/* ---- Status cluster, bottom centre -------------------------------------- */
+.hud-status {
+    position: fixed;
+    left: 50%;
+    bottom: 22px;
+    transform: translateX(-50%);
+}
+
+/* Style 1 — one pill holding three chips. */
+.hud-status.is-pill .s-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 11px;
+    border: 1px solid var(--nyx-line);
+    border-radius: var(--nyx-r-sm);
+    background: rgba(10, 10, 13, .70);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+}
+
+.hud-status.is-pill .s-chip {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--nyx-r-xs);
+    color: var(--nyx-text-mute);
+    overflow: hidden;
+}
+
+/* The fill rises from the bottom in proportion to the value, which is what
+   makes a glance at the chip tell you how hurt you are. */
+.hud-status.is-pill .s-fill {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--nyx-accent);
+    box-shadow: 0 0 14px var(--nyx-accent-halo);
+    transition: height 180ms linear;
+}
+
+.hud-status.is-pill .s-chip svg {
+    position: relative;
+    width: 15px;
+    height: 15px;
+}
+
+.hud-status.is-pill .s-chip.is-on { color: #fff; }
+.hud-status.is-pill .s-chip.is-armour .s-fill { background: var(--nyx-info); box-shadow: 0 0 14px rgba(57, 160, 255, .45); }
+
+/* Style 2 — three free-standing rings. */
+.hud-status.is-rings .s-wrap { display: flex; align-items: center; gap: 13px; }
+
+.hud-status.is-rings .s-chip {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 2px solid var(--nyx-line-hard);
+    background: rgba(10, 10, 13, .70);
+    color: var(--nyx-text-mute);
+    transition: border-color 180ms, color 180ms, box-shadow 180ms;
+}
+
+.hud-status.is-rings .s-chip svg { width: 15px; height: 15px; }
+.hud-status.is-rings .s-fill { display: none; }
+
+.hud-status.is-rings .s-chip.is-on {
+    border-color: var(--nyx-accent);
+    color: var(--nyx-accent);
+    box-shadow: 0 0 16px var(--nyx-accent-halo);
+}
+
+.hud-status.is-rings .s-chip.is-armour.is-on {
+    border-color: var(--nyx-info);
+    color: var(--nyx-info);
+    box-shadow: 0 0 16px rgba(57, 160, 255, .45);
+}
+
+/* A dying player's cluster pulses so it reads before the numbers do. */
+.hud-status.is-critical { animation: hud-pulse 900ms ease-in-out infinite; }
+@keyframes hud-pulse { 50% { opacity: .45; } }
+
+/* ---- Vehicle, bottom left ----------------------------------------------- */
+.hud-vehicle {
+    position: fixed;
+    left: 24px;
+    bottom: 22px;
+    display: flex;
+    align-items: flex-end;
+    gap: 14px;
+}
+
+.v-speed { display: flex; align-items: baseline; gap: 5px; }
+
+.v-number {
+    font-family: var(--nyx-font-pixel);
+    font-size: 38px;
+    font-weight: 800;
+    line-height: 1;
+    color: var(--nyx-text);
+    text-shadow: 0 2px 10px rgba(0, 0, 0, .9);
+    font-variant-numeric: tabular-nums;
+}
+
+.v-units { font-size: 12px; font-weight: 700; color: var(--nyx-text-dim); text-transform: uppercase; letter-spacing: 1.4px; }
+
+.v-bars { display: flex; flex-direction: column; gap: 5px; width: 128px; padding-bottom: 5px; }
+
+.v-bar {
+    height: 4px;
+    border-radius: var(--nyx-r-pill);
+    background: rgba(255, 255, 255, .12);
+    overflow: hidden;
+}
+
+.v-bar i {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--nyx-accent);
+    box-shadow: 0 0 10px var(--nyx-accent-halo);
+    transition: width 160ms linear;
+}
+
+.v-bar.is-fuel i { background: var(--nyx-warn); box-shadow: 0 0 10px rgba(255, 176, 32, .4); }
+.v-bar.is-engine i { background: var(--nyx-good); box-shadow: 0 0 10px rgba(53, 208, 127, .4); }
+.v-bar.is-low i { background: var(--nyx-bad); box-shadow: 0 0 10px rgba(255, 77, 94, .45); }
+
+/* ---- Watermark, bottom right -------------------------------------------- */
+.hud-watermark {
+    position: fixed;
+    right: 18px;
+    bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border: 1px solid var(--nyx-line);
+    border-radius: var(--nyx-r-xs);
+    background: rgba(10, 10, 13, .72);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    font-size: 11.5px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: var(--nyx-text-dim);
+}
+
+.hud-watermark b { color: var(--nyx-accent); }
+
+.hud-watermark .w-count {
+    padding: 2px 6px;
+    border-radius: var(--nyx-r-xs);
+    background: rgba(255, 255, 255, .08);
+    color: var(--nyx-text);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---- Voice range, bottom right above the watermark ---------------------- */
+.hud-voice {
+    position: fixed;
+    right: 18px;
+    bottom: 44px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--nyx-text-mute);
+    letter-spacing: .4px;
+}
+
+/* ---- Crosshair ---------------------------------------------------------- */
+.hud-crosshair { position: fixed; inset: 0; }
+
+/* ---- Announcement, top centre ------------------------------------------- */
+.hud-announce {
+    position: fixed;
+    top: 84px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(560px, 60vw);
+    padding: 15px 20px;
+    border: 1px solid var(--nyx-accent-edge);
+    border-radius: var(--nyx-r);
+    background: linear-gradient(180deg, rgba(var(--nyx-accent-rgb), .16), rgba(10, 10, 13, .92));
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    box-shadow: var(--nyx-shadow), 0 0 32px var(--nyx-accent-halo);
+    text-align: center;
+    animation: nyx-rise var(--nyx-slow) both;
+}
+
+.hud-announce.is-leaving { animation: nyx-fade var(--nyx-mid) reverse both; }
+
+.a-title {
+    font-size: 11.5px;
+    font-weight: 800;
+    letter-spacing: 2.4px;
+    text-transform: uppercase;
+    color: var(--nyx-accent);
+    margin-bottom: 5px;
+}
+
+.a-text { font-size: 14.5px; font-weight: 500; line-height: 1.5; color: var(--nyx-text); word-wrap: break-word; }

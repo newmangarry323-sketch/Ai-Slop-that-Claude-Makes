@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Nyx — menu</title>
+<!-- One stylesheet for the whole suite, served out of nyx_lib. -->
+<link rel="stylesheet" href="nui://nyx_lib/web/theme.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Hidden until Lua sends `open`, so the page never flashes on join. -->
+    <div class="shell nyx-hidden" id="shell">
+        <div class="nyx-backdrop"></div>
+
+        <header class="nyx-topbar" id="topbar">
+            <nav class="nyx-tabs" id="tabs"></nav>
+            <div class="nyx-brand" id="brand"></div>
+            <div class="nyx-stats" id="stats"></div>
+            <div class="nyx-profile">
+                <span class="nyx-profile-name" id="playerName"></span>
+                <div class="nyx-avatar" id="avatar"></div>
+                <button class="nyx-iconbtn" id="closeBtn" title="Close (Esc)"></button>
+            </div>
+        </header>
+
+        <div class="body" id="body">
+            <aside class="nyx-panel rail-panel">
+                <div class="nyx-strip nyx-strip--full">Sections</div>
+                <div class="nyx-rail nyx-scroll" id="rail"></div>
+            </aside>
+
+            <!-- Everything to the right of the rail is rebuilt per tab. -->
+            <div class="content nyx-scroll" id="content"></div>
+        </div>
+    </div>
+
+    <script src="nui://nyx_lib/web/nyx.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
