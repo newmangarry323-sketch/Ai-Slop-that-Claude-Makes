@@ -28,6 +28,17 @@ Everything is in [`rust-building-mod/`](rust-building-mod/), including the ready
 `rust-building-1.1.0.jar` and a guide to playing and building it.
 
 
+## Plasmix (x86-64 hobby OS)
+
+A small UNIX-like operating system in C for 64-bit PCs, with a text-mode desktop
+built on the 2012 KDE Plasma 4 design ideas: plasmoids, containments, activities,
+Kickoff, KRunner and the desktop toolbox. It has a shell, an in-memory file system,
+Konsole, Dolphin, KWrite and widgets. Boot it with `make run` (QEMU), or try it in a
+terminal with `make host`.
+
+Everything is in [`plasmix/`](plasmix/), with a guide to how it works and exercises.
+
+
 
 
 
