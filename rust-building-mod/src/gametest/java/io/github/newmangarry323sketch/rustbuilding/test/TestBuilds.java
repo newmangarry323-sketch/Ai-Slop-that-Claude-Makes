@@ -3,6 +3,10 @@ package io.github.newmangarry323sketch.rustbuilding.test;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 
 import io.github.newmangarry323sketch.rustbuilding.building.BuildingOps;
 import io.github.newmangarry323sketch.rustbuilding.building.BuildingTier;
@@ -12,6 +16,7 @@ import io.github.newmangarry323sketch.rustbuilding.building.PiecePlanner;
 import io.github.newmangarry323sketch.rustbuilding.building.PieceRef;
 import io.github.newmangarry323sketch.rustbuilding.building.PieceType;
 import io.github.newmangarry323sketch.rustbuilding.building.PlannedPiece;
+import io.github.newmangarry323sketch.rustbuilding.registry.ModBlocks;
 
 /** Building through the same planner and operations the items use, for tests and screenshots. */
 final class TestBuilds {
@@ -56,7 +61,7 @@ final class TestBuilds {
 
 	/**
 	 * A two-by-two base showing every grade: armored and sheet metal foundations, stone and wood walls
-	 * with a doorway and a window, twig on the first floor, and a staircase.
+	 * with a doorway (and a sheet metal door) and a window, twig on the first floor, and a staircase.
 	 *
 	 * @param y the slab level of the foundations, one above the ground
 	 */
@@ -95,6 +100,12 @@ final class TestBuilds {
 		BuildingOps.upgrade(level, new PieceRef.Wall(east(cellX + 1, cellZ + 1, y)), BuildingTier.METAL);
 		BuildingOps.upgrade(level, new PieceRef.Wall(west(cellX, cellZ + 1, y)), BuildingTier.ARMORED);
 		BuildingOps.upgrade(level, new PieceRef.Stairs(cellX, cellZ, y), BuildingTier.WOOD);
+
+		// A sheet metal door in the doorway.
+		BlockPos doorway = south(cellX, cellZ + 1, y).pos(1, 1);
+		BlockState door = ModBlocks.SHEET_METAL_DOOR.defaultBlockState().setValue(DoorBlock.FACING, Direction.NORTH);
+		level.setBlock(doorway, door.setValue(DoorBlock.HALF, DoubleBlockHalf.LOWER), Block.UPDATE_ALL);
+		level.setBlock(doorway.above(), door.setValue(DoorBlock.HALF, DoubleBlockHalf.UPPER), Block.UPDATE_ALL);
 	}
 
 	/** Absolute centre of the slab of a cell, for aiming the camera. */

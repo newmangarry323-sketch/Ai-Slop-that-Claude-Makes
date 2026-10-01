@@ -9,6 +9,11 @@ doors with a code, and raid other bases with TNT.
 
 <br clear="left">
 
+![A small base in all five grades: armored and sheet metal foundations, stone and wooden walls with a doorway, a door and a window, and a twig first floor](docs/base.png)
+
+*Screenshots are taken automatically by the client game test (`src/gametest`) in a real Minecraft 26.3
+client on every release build.*
+
 ## Download and install
 
 1. Install [Fabric Loader](https://fabricmc.net/use/installer/) **0.19.5 or newer** for Minecraft **26.3**.
@@ -17,7 +22,8 @@ doors with a code, and raid other bases with TNT.
    [releases page](https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases) (tag `rust-building-v1.0.0`).
 
 The mod adds blocks and items, so it must be installed on the **server and on every client**. It needs
-Java 25, which the official launcher already ships with Minecraft 26.3.
+Java 25, the same as Minecraft 26.3 itself: the official launcher provides it, and a dedicated server
+needs Java 25 installed.
 
 ## How to play
 
@@ -35,12 +41,16 @@ is 4 blocks: the floor, then 3 blocks of wall. Corner pillars appear by themselv
 Hold it and you see a see-through **blue** preview where the piece will go (**red** if it cannot go
 there; the reason is shown under the crosshair). **Use** to place it. **Sneak + use** to choose a piece:
 
+![The blue preview of a twig wall on the far edge of a foundation, with "Twig Wall - 9 Sticks" under the crosshair](docs/preview.png)
+
 | Piece | Aim at | Size |
 | --- | --- | --- |
 | Foundation | the ground, or the side of a foundation to continue the grid | 3 x 3 + shared edge |
 | Wall, Doorway, Window, Half Wall, Low Wall | the top of a foundation or floor, near the edge you want | 3 wide, 3 / 3 / 3 / 2 / 1 high |
 | Floor | the top of a wall (goes on your side of it), the side of another floor, or the floor of the room it should cover | 3 x 3 |
 | Stairs | the floor of a cell; they climb the way you face | fills one cell, reaches the next storey |
+
+<img src="docs/piece-menu.png" width="427" alt="The building plan's piece menu">
 
 New pieces are **twig** and cost 1 stick per block (a foundation or wall is 9 sticks; stairs count
 double). A foundation can stand up to 3 blocks above uneven ground; legs fill the gap.
@@ -67,8 +77,9 @@ break them. A base comes apart through its owner's hammer, or through explosives
 
 Placing one gives you **building privilege** in a cube 16 blocks out in every direction; use it to see
 who is on its list and to **authorize** yourself, **deauthorize** yourself, or **clear the list** - the
-same three actions as Rust. Inside the zone, players who are not on the list cannot place any block,
-use the building plan or hammer, or pick up the cupboard or a Rust door. A cupboard cannot be placed
+same three actions as Rust. Inside the zone, players who are not on the list cannot place blocks
+(except TNT, so raiding stays possible), build, upgrade, repair or demolish pieces, or pick up the
+cupboard or a Rust door. A cupboard cannot be placed
 where its zone would overlap one that does not list you. As in Rust, anyone who can reach an unlocked
 cupboard can add themselves, so **put a code lock on it**.
 
@@ -80,6 +91,8 @@ cupboard can add themselves, so **put a code lock on it**.
   asked for the code; a right code is remembered, a wrong one gives a small shock (1 heart). The owner
   can **sneak + use** the door (or press *Code lock settings* on the cupboard) to change the code - which
   forgets everyone else - or take the lock off.
+
+<img src="docs/code-lock.png" width="427" alt="The code lock asking for the code">
 
 ### Raiding
 

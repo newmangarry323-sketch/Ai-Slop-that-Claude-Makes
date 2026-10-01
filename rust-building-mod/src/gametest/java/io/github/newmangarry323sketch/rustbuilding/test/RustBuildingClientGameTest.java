@@ -4,6 +4,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.levelgen.Heightmap;
 
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
@@ -44,8 +45,8 @@ public class RustBuildingClientGameTest implements FabricClientGameTest {
 			singleplayer.getServer().runCommand("/time set noon");
 			singleplayer.getServer().runCommand("/weather clear");
 
-			// The base, from the south-east.
-			singleplayer.getServer().runCommand("/tp @a 17.5 " + (ground + 6) + " 19.5 138 17");
+			// The base, from the south-east, looking at its middle.
+			singleplayer.getServer().runCommand("/tp @a 15.5 " + (ground + 4) + " 15.5 135 14");
 			singleplayer.getConnection().waitForChunksRender();
 			context.waitTicks(20);
 			context.takeScreenshot("rustbuilding-base");
@@ -56,10 +57,13 @@ public class RustBuildingClientGameTest implements FabricClientGameTest {
 				ItemStack plan = new ItemStack(ModItems.BUILDING_PLAN);
 				plan.set(ModComponents.SELECTED_PIECE, PieceType.WALL.ordinal());
 				player.setItemInHand(InteractionHand.MAIN_HAND, plan);
+				// Enough sticks for the wall, so the cost line shows as affordable.
+				player.getInventory().add(new ItemStack(Items.STICK, 32));
 			});
 			singleplayer.getServer().runCommand("/tp @a 18.5 " + ground + " 11.5 180 6");
 			singleplayer.getConnection().waitForChunksRender();
-			context.waitTicks(10);
+			// Long enough for the item name that pops up over the hotbar to fade.
+			context.waitTicks(60);
 			context.takeScreenshot("rustbuilding-preview");
 
 			context.setScreen(() -> new PieceMenuScreen(PieceType.WALL));
