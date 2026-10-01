@@ -1,0 +1,46 @@
+{
+  "variants": {
+    "axis=x,half=upper,open=false": {
+      "model": "rustbuilding:block/garage_door_top"
+    },
+    "axis=x,column=0,half=lower,open=false": {
+      "model": "rustbuilding:block/garage_door_bottom"
+    },
+    "axis=x,column=1,half=lower,open=false": {
+      "model": "rustbuilding:block/garage_door_handle"
+    },
+    "axis=x,column=2,half=lower,open=false": {
+      "model": "rustbuilding:block/garage_door_bottom"
+    },
+    "axis=x,half=upper,open=true": {
+      "model": "rustbuilding:block/garage_door_rolled"
+    },
+    "axis=x,half=lower,open=true": {
+      "model": "rustbuilding:block/garage_door_open"
+    },
+    "axis=z,half=upper,open=false": {
+      "model": "rustbuilding:block/garage_door_top",
+      "y": 90
+    },
+    "axis=z,column=0,half=lower,open=false": {
+      "model": "rustbuilding:block/garage_door_bottom",
+      "y": 90
+    },
+    "axis=z,column=1,half=lower,open=false": {
+      "model": "rustbuilding:block/garage_door_handle",
+      "y": 90
+    },
+    "axis=z,column=2,half=lower,open=false": {
+      "model": "rustbuilding:block/garage_door_bottom",
+      "y": 90
+    },
+    "axis=z,half=upper,open=true": {
+      "model": "rustbuilding:block/garage_door_rolled",
+      "y": 90
+    },
+    "axis=z,half=lower,open=true": {
+      "model": "rustbuilding:block/garage_door_open",
+      "y": 90
+    }
+  }
+}

@@ -136,15 +136,11 @@ public final class Structure {
 				yield UNKNOWN;
 			}
 			case WALL -> {
+				// The slab line under the wall, at most a wall's height down. Openings (a doorway, a window,
+				// the gap under a wall frame) may lie in between, so look past whatever is there.
 				for (int down = 1; down <= Grid.WALL_HEIGHT; down++) {
-					BuildingKind below = kindOf(level.getBlockState(pos.below(down)));
-
-					if (below == BuildingKind.SLAB) {
+					if (kindOf(level.getBlockState(pos.below(down))) == BuildingKind.SLAB) {
 						yield pos.getY() - down;
-					}
-
-					if (below != BuildingKind.WALL) {
-						break;
 					}
 				}
 

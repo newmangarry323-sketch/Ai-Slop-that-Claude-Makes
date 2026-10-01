@@ -70,6 +70,19 @@ public final class BuildingPrivilege {
 		return found;
 	}
 
+	/** Whether every chunk within {@code radius} blocks (on X and Z) of a position is loaded. */
+	public static boolean areaLoaded(Level level, BlockPos centre, int radius) {
+		for (int chunkX = (centre.getX() - radius) >> 4; chunkX <= (centre.getX() + radius) >> 4; chunkX++) {
+			for (int chunkZ = (centre.getZ() - radius) >> 4; chunkZ <= (centre.getZ() + radius) >> 4; chunkZ++) {
+				if (!level.hasChunk(chunkX, chunkZ)) {
+					return false;
+				}
+			}
+		}
+
+		return true;
+	}
+
 	public static boolean canBuild(Level level, Player player, BlockPos pos) {
 		return canBuildAll(level, player, List.of(pos));
 	}

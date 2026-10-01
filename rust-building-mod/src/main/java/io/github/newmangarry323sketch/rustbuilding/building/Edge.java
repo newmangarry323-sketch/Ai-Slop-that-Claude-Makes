@@ -36,7 +36,23 @@ public record Edge(Direction.Axis axis, int line, int segment, int y0) {
 				: new BlockPos(this.line, this.y0 + h, along);
 	}
 
-	/** The block every wall-like piece keeps: bottom of the first column. Used to key damage. */
+	/** Which end of this wall a grid corner is: 0 for the low end, 1 for the high end, -1 if neither. */
+	public int endAt(int x, int z) {
+		for (int end = 0; end <= 1; end++) {
+			BlockPos corner = this.corner(end, 0);
+
+			if (corner.getX() == x && corner.getZ() == z) {
+				return end;
+			}
+		}
+
+		return -1;
+	}
+
+	/**
+	 * Where a wall-like piece's damage is stored: the bottom of its first column. A wall frame has no
+	 * block there, which is fine - this is only a key.
+	 */
 	public BlockPos anchor() {
 		return this.pos(0, 1);
 	}

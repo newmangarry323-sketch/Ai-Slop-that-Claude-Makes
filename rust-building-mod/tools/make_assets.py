@@ -131,6 +131,54 @@ def doors():
         item_definition(door, "%s:item/%s" % (NS, door))
 
 
+def garage_door():
+    """Six blocks in a wall frame's opening; the model only depends on the row, the handle column and open."""
+    panel = [{
+        "from": [0, 0, 6], "to": [16, 16, 10],
+        "faces": {side: {"texture": "#door"} for side in ("north", "south", "east", "west", "up", "down")},
+    }]
+    for name, texture in (("garage_door_top", "garage_door_top"), ("garage_door_bottom", "garage_door_bottom"),
+                          ("garage_door_handle", "garage_door_handle")):
+        block_model(name, {
+            "parent": "minecraft:block/block",
+            "textures": {"door": "%s:block/%s" % (NS, texture), "particle": "%s:block/%s" % (NS, texture)},
+            "elements": panel,
+        })
+    # Rolled up into the beam: only the bottom rail shows, at the top of the opening.
+    rail = {"texture": "#door", "uv": [0, 12, 16, 14]}
+    block_model("garage_door_rolled", {
+        "parent": "minecraft:block/block",
+        "textures": {"door": "%s:block/garage_door_bottom" % NS, "particle": "%s:block/garage_door_bottom" % NS},
+        "elements": [{
+            "from": [0, 14, 6], "to": [16, 16, 10],
+            "faces": {side: rail for side in ("north", "south", "east", "west", "up", "down")},
+        }],
+    })
+    block_model("garage_door_open", {
+        "parent": "minecraft:block/block",
+        "textures": {"particle": "%s:block/garage_door_bottom" % NS},
+        "elements": [],
+    })
+
+    variants = {}
+    for axis, rotation in (("x", 0), ("z", 90)):
+        def variant(model):
+            value = {"model": "%s:block/%s" % (NS, model)}
+            if rotation:
+                value["y"] = rotation
+            return value
+
+        variants["axis=%s,half=upper,open=false" % axis] = variant("garage_door_top")
+        for column in range(3):
+            variants["axis=%s,column=%d,half=lower,open=false" % (axis, column)] = variant(
+                "garage_door_handle" if column == 1 else "garage_door_bottom")
+        variants["axis=%s,half=upper,open=true" % axis] = variant("garage_door_rolled")
+        variants["axis=%s,half=lower,open=true" % axis] = variant("garage_door_open")
+    blockstate("garage_door", {"variants": variants})
+    item_model("garage_door", {"parent": "minecraft:item/generated", "textures": {"layer0": "%s:item/garage_door" % NS}})
+    item_definition("garage_door", "%s:item/garage_door" % NS)
+
+
 def items():
     item_model("building_plan", {"parent": "minecraft:item/generated", "textures": {"layer0": "%s:item/building_plan" % NS}})
     item_model("hammer", {"parent": "minecraft:item/handheld", "textures": {"layer0": "%s:item/hammer" % NS}})
@@ -206,6 +254,13 @@ def recipes():
         "ingredients": ["minecraft:iron_door", "minecraft:iron_ingot", "minecraft:iron_ingot"],
         "result": {"id": "%s:sheet_metal_door" % NS},
     })
+    write(os.path.join(path, "garage_door.json"), {
+        "type": "minecraft:crafting_shaped",
+        "category": "redstone",
+        "key": {"I": "minecraft:iron_ingot", "P": "minecraft:piston"},
+        "pattern": ["III", "IPI", "III"],
+        "result": {"id": "%s:garage_door" % NS},
+    })
     write(os.path.join(path, "armored_door.json"), {
         "type": "minecraft:crafting_shapeless",
         "category": "redstone",
@@ -220,7 +275,8 @@ def tags():
     # Withers and the dragon would otherwise chew through blocks that players cannot mine.
     write(os.path.join(tag_path, "wither_immune.json"), {"replace": False, "values": solid})
     write(os.path.join(tag_path, "dragon_immune.json"), {"replace": False, "values": solid})
-    write(os.path.join(tag_path, "mineable", "pickaxe.json"), {"replace": False, "values": ["%s:%s" % (NS, door) for door in DOORS]})
+    write(os.path.join(tag_path, "mineable", "pickaxe.json"), {"replace": False, "values": [
+        "%s:%s" % (NS, door) for door in DOORS + ["garage_door"]]})
     write(os.path.join(tag_path, "mineable", "axe.json"), {"replace": False, "values": [
         "%s:tool_cupboard" % NS, "%s:twig" % NS, "%s:twig_stairs" % NS]})
 
@@ -229,6 +285,7 @@ def main():
     building_blocks()
     tool_cupboard()
     doors()
+    garage_door()
     items()
     loot_tables()
     recipes()

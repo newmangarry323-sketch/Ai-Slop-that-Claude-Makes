@@ -8,10 +8,14 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
-/** A centred column of buttons under a title and a few lines of text: all the mod's menus look like this. */
+/**
+ * Buttons under a title and a few lines of text, in one centred column or two: all the mod's menus look
+ * like this.
+ */
 abstract class MenuScreen extends Screen {
 	protected static final int BUTTON_WIDTH = 200;
 	protected static final int BUTTON_HEIGHT = 20;
+	private static final int COLUMN_WIDTH = 150;
 	private static final int GAP = 4;
 	private static final int LINE_HEIGHT = 11;
 
@@ -31,6 +35,11 @@ abstract class MenuScreen extends Screen {
 	/** Fills {@link #lines()} and adds the buttons with {@link #button}. Called on every (re)initialisation. */
 	protected abstract void build();
 
+	/** Lay the buttons out in two columns, for menus with many of them. */
+	protected boolean twoColumns() {
+		return false;
+	}
+
 	@Override
 	protected final void init() {
 		this.lines.clear();
@@ -38,15 +47,26 @@ abstract class MenuScreen extends Screen {
 		this.pendingButtons.clear();
 		this.build();
 
+		int columns = this.twoColumns() ? 2 : 1;
+		int buttonWidth = columns == 1 ? BUTTON_WIDTH : COLUMN_WIDTH;
+		int rows = (this.pendingButtons.size() + columns - 1) / columns;
 		int textHeight = 14 + this.lines.size() * LINE_HEIGHT + 8;
-		int buttonsHeight = this.pendingButtons.size() * (BUTTON_HEIGHT + GAP);
+		int buttonsHeight = rows * (BUTTON_HEIGHT + GAP);
 		this.top = Math.max(10, (this.height - textHeight - buttonsHeight) / 2);
 		int y = this.top + textHeight;
-		int x = (this.width - BUTTON_WIDTH) / 2;
+		int x = (this.width - (columns * buttonWidth + (columns - 1) * GAP)) / 2;
 
-		for (Button.Builder builder : this.pendingButtons) {
-			this.addRenderableWidget(builder.bounds(x, y, BUTTON_WIDTH, BUTTON_HEIGHT).build());
-			y += BUTTON_HEIGHT + GAP;
+		for (int i = 0; i < this.pendingButtons.size(); i++) {
+			int column = i % columns;
+			int buttonX = x + column * (buttonWidth + GAP);
+
+			// A last button on its own goes in the middle.
+			if (columns > 1 && i == this.pendingButtons.size() - 1 && column == 0) {
+				buttonX = (this.width - buttonWidth) / 2;
+			}
+
+			int buttonY = y + (i / columns) * (BUTTON_HEIGHT + GAP);
+			this.addRenderableWidget(this.pendingButtons.get(i).bounds(buttonX, buttonY, buttonWidth, BUTTON_HEIGHT).build());
 		}
 
 		this.afterLayout(x, this.top + textHeight - 4);
@@ -74,9 +94,9 @@ abstract class MenuScreen extends Screen {
 		graphics.text(this.font, title, (this.width - this.font.width(title)) / 2, this.top, 0xFFFFFFFF, true);
 		int y = this.top + 14;
 
+		// Lines keep their own colours (a warning in red, say); plain ones are light grey.
 		for (Component line : this.lines) {
-			String text = line.getString();
-			graphics.text(this.font, text, (this.width - this.font.width(text)) / 2, y, 0xFFC8C8C8, false);
+			graphics.text(this.font, line, (this.width - this.font.width(line)) / 2, y, 0xFFC8C8C8, false);
 			y += LINE_HEIGHT;
 		}
 	}

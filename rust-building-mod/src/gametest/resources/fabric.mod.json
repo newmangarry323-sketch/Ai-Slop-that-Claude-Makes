@@ -8,7 +8,8 @@
 	"environment": "*",
 	"entrypoints": {
 		"fabric-gametest": [
-			"io.github.newmangarry323sketch.rustbuilding.test.RustBuildingGameTest"
+			"io.github.newmangarry323sketch.rustbuilding.test.RustBuildingGameTest",
+			"io.github.newmangarry323sketch.rustbuilding.test.GarageDoorAndUpkeepGameTest"
 		],
 		"fabric-client-gametest": [
 			"io.github.newmangarry323sketch.rustbuilding.test.RustBuildingClientGameTest"

@@ -324,6 +324,56 @@ def door_item(top, bottom):
     return img
 
 
+# --- Garage door -----------------------------------------------------------------------------
+
+GARAGE_STEEL = "#8a9298"
+
+
+def garage_slats(rng, img, rows):
+    """Rolled steel slats, 4 pixels each, across the whole width so the six blocks tile."""
+    base = hex_colour(GARAGE_STEEL)
+    for y in range(rows):
+        tone = shade(base, (0.2, 0.04, -0.08, -0.32)[y % 4])
+        img.rect(0, y, 15, y, tone)
+    rust = hex_colour("#8f4f24")
+    for _ in range(5):
+        x, y = rng.randint(0, 15), rng.randint(0, rows - 1)
+        img.set(x, y, shade(rust, rng.uniform(-0.2, 0.15)))
+
+
+def garage_door(seed, bottom, handle=False):
+    rng = random.Random(seed)
+    img = Image(16, 16, hex_colour(GARAGE_STEEL))
+    if not bottom:
+        garage_slats(rng, img, 16)
+    else:
+        garage_slats(rng, img, 12)
+        rail = hex_colour("#4b5055")
+        img.rect(0, 12, 15, 14, rail)
+        img.rect(0, 12, 15, 12, shade(rail, 0.3))
+        img.rect(0, 15, 15, 15, hex_colour("#1c1d1f"))
+        if handle:
+            img.rect(5, 9, 10, 10, hex_colour("#c9c9c9"))
+            img.rect(5, 11, 10, 11, shade(hex_colour(GARAGE_STEEL), -0.45))
+            img.set(5, 10, hex_colour("#7d7d7d"))
+            img.set(10, 10, hex_colour("#7d7d7d"))
+    img.noise(rng, 0.03)
+    return img
+
+
+def garage_door_item():
+    """The door in its frame: slats, a bottom rail and a handle."""
+    img = Image(16, 16)
+    frame = hex_colour("#4a3a2a")
+    img.rect(1, 2, 14, 14, frame)
+    base = hex_colour(GARAGE_STEEL)
+    for y in range(3, 12):
+        img.rect(2, y, 13, y, shade(base, (0.2, -0.05, -0.3)[y % 3]))
+    img.rect(2, 12, 13, 13, hex_colour("#4b5055"))
+    img.rect(6, 10, 9, 10, hex_colour("#dadada"))
+    return img
+
+
 # --- Items -----------------------------------------------------------------------------------
 
 def building_plan():
@@ -424,6 +474,10 @@ def main():
         "item/building_plan": building_plan(),
         "item/hammer": hammer(),
         "item/code_lock": code_lock(),
+        "block/garage_door_top": garage_door(13, False),
+        "block/garage_door_bottom": garage_door(14, True),
+        "block/garage_door_handle": garage_door(14, True, handle=True),
+        "item/garage_door": garage_door_item(),
     }
     textures["item/sheet_metal_door"] = door_item(textures["block/sheet_metal_door_top"], textures["block/sheet_metal_door_bottom"])
     textures["item/armored_door"] = door_item(textures["block/armored_door_top"], textures["block/armored_door_bottom"])

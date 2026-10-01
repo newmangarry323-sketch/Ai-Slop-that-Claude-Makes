@@ -4,6 +4,7 @@ import java.util.function.BiConsumer;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.block.Block;
@@ -14,6 +15,7 @@ import net.minecraft.world.level.block.state.properties.EnumProperty;
 import io.github.newmangarry323sketch.rustbuilding.building.BuildingKind;
 import io.github.newmangarry323sketch.rustbuilding.building.BuildingTier;
 import io.github.newmangarry323sketch.rustbuilding.raid.RaidDamage;
+import io.github.newmangarry323sketch.rustbuilding.upkeep.Decay;
 
 /**
  * One block of a building piece. There is one of these per grade. Wood and above cannot be mined -
@@ -38,6 +40,12 @@ public class BuildingBlock extends Block {
 	@Override
 	protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
 		builder.add(KIND);
+	}
+
+	/** Unprotected pieces decay; a random tick on one of a piece's blocks brings its decay up to date. */
+	@Override
+	protected void randomTick(BlockState state, ServerLevel level, BlockPos pos, RandomSource random) {
+		Decay.onRandomTick(level, pos);
 	}
 
 	@Override

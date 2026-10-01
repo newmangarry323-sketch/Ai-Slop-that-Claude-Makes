@@ -8,6 +8,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.SimpleMenuProvider;
+import net.minecraft.world.inventory.DispenserMenu;
 import net.minecraft.world.item.ItemStack;
 
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
@@ -96,6 +98,13 @@ public final class ModNetworking {
 			case Payloads.CupboardAction.AUTHORIZE -> cupboard.authorize(player);
 			case Payloads.CupboardAction.DEAUTHORIZE -> cupboard.deauthorize(player);
 			case Payloads.CupboardAction.CLEAR -> cupboard.clearAuthorized();
+			case Payloads.CupboardAction.OPEN_STORAGE -> {
+				// Settle first, so the storage shows what is really left.
+				cupboard.settle(level, level.getGameTime());
+				player.openMenu(new SimpleMenuProvider(
+						(containerId, inventory, menuPlayer) -> new DispenserMenu(containerId, inventory, cupboard.storage()),
+						Component.translatable("screen.rustbuilding.cupboard.storage_title")));
+			}
 			default -> {
 			}
 		}

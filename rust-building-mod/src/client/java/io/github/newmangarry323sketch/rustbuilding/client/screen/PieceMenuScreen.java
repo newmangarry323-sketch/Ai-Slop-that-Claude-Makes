@@ -17,10 +17,15 @@ public class PieceMenuScreen extends MenuScreen {
 	}
 
 	@Override
+	protected boolean twoColumns() {
+		return true;
+	}
+
+	@Override
 	protected void build() {
 		this.lines().add(Component.translatable("screen.rustbuilding.pieces.hint"));
 
-		for (PieceType type : PieceType.values()) {
+		for (PieceType type : PieceType.MENU_ORDER) {
 			Component label = type == this.current
 					? Component.literal("> ").append(type.displayName()).append(" <")
 					: type.displayName();

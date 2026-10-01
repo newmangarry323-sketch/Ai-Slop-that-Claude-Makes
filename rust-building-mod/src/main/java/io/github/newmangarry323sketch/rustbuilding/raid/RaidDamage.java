@@ -3,7 +3,6 @@ package io.github.newmangarry323sketch.rustbuilding.raid;
 import java.lang.ref.WeakReference;
 import java.util.Collection;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 
 import net.minecraft.core.BlockPos;
@@ -64,19 +63,25 @@ public final class RaidDamage {
 		}
 	}
 
-	/** Doors take damage the same way, keyed by their bottom half. */
-	public static void onDoorHit(ServerLevel level, BlockPos lowerPos, int maxHealth, Explosion explosion) {
-		if (!firstHit(explosion, lowerPos)) {
-			return;
+	/**
+	 * Doors take damage the same way, counted against one of their blocks.
+	 *
+	 * @param blocks the door's blocks, to measure the blast's distance from
+	 * @return whether the door has now taken its full health; the caller removes it
+	 */
+	public static boolean damageDoor(ServerLevel level, BlockPos key, Collection<BlockPos> blocks, int maxHealth, Explosion explosion) {
+		if (!firstHit(explosion, key)) {
+			return false;
 		}
 
 		PieceDamage damage = PieceDamage.get(level);
 
-		if (damage.add(lowerPos, damageFrom(explosion, List.of(lowerPos, lowerPos.above()))) >= maxHealth) {
-			damage.clear(lowerPos);
-			// Removing the bottom half takes the top half with it; neither drops anything.
-			level.setBlock(lowerPos, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+		if (damage.add(key, damageFrom(explosion, blocks)) >= maxHealth) {
+			damage.clear(key);
+			return true;
 		}
+
+		return false;
 	}
 
 	/**

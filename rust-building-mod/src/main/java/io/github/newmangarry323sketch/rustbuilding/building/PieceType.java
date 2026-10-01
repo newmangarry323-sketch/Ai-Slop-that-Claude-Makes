@@ -1,5 +1,7 @@
 package io.github.newmangarry323sketch.rustbuilding.building;
 
+import java.util.List;
+
 import net.minecraft.network.chat.Component;
 
 /**
@@ -14,7 +16,14 @@ public enum PieceType {
 	WINDOW("window", Category.EDGE, new String[] {"###", "#.#", "###"}),
 	HALF_WALL("half_wall", Category.EDGE, new String[] {"...", "###", "###"}),
 	LOW_WALL("low_wall", Category.EDGE, new String[] {"...", "...", "###"}),
-	STAIRS("stairs", Category.STAIRS, null);
+	STAIRS("stairs", Category.STAIRS, null),
+	// Added after the rest so that building plans saved with a piece selected keep their selection.
+	/** A beam across the top, posts at the ends and a 3 x 2 opening below: where a garage door goes. */
+	WALL_FRAME("wall_frame", Category.EDGE, new String[] {"###", "...", "..."});
+
+	/** The order the building plan's menu lists the pieces in. */
+	public static final List<PieceType> MENU_ORDER = List.of(
+			FOUNDATION, FLOOR, WALL, DOORWAY, WINDOW, WALL_FRAME, HALF_WALL, LOW_WALL, STAIRS);
 
 	public enum Category {
 		SLAB,
@@ -48,6 +57,15 @@ public enum PieceType {
 		}
 
 		return this.pattern[3 - h].charAt(u) == '#';
+	}
+
+	/**
+	 * Whether the corner pillar at one end ({@code end} 0 or 1) of a wall-like piece reaches height
+	 * {@code h}. Pillars run as high as the piece's end columns, except that a wall frame's posts run
+	 * the full height beside its opening.
+	 */
+	public boolean needsPillar(int end, int h) {
+		return this == WALL_FRAME || this.edgeHas(end * 2, h);
 	}
 
 	public Component displayName() {

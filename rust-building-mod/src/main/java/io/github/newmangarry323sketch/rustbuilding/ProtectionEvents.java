@@ -11,8 +11,10 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.TntBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -20,6 +22,7 @@ import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
 import net.fabricmc.fabric.api.event.player.ItemEvents;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 
+import io.github.newmangarry323sketch.rustbuilding.block.GarageDoorBlock;
 import io.github.newmangarry323sketch.rustbuilding.block.RustDoorBlock;
 import io.github.newmangarry323sketch.rustbuilding.block.ToolCupboardBlock;
 import io.github.newmangarry323sketch.rustbuilding.building.HammerActions;
@@ -30,7 +33,8 @@ import io.github.newmangarry323sketch.rustbuilding.registry.ModItems;
 
 /**
  * Building privilege for everything that is not a building piece: placing any block (except TNT)
- * inside someone else's cupboard zone is blocked, and their cupboards and doors cannot be picked up.
+ * inside someone else's cupboard zone is blocked, and their cupboards, doors and garage doors cannot be
+ * picked up.
  * Other blocks can still be broken, as deployables can be destroyed in Rust.
  */
 public final class ProtectionEvents {
@@ -41,6 +45,13 @@ public final class ProtectionEvents {
 
 	public static void init() {
 		PlayerBlockBreakEvents.BEFORE.register((level, player, pos, state, blockEntity) -> canPickUp(level, player, pos, state));
+
+		// A garage door's six blocks have no loot of their own; picking one up gives back the whole door.
+		PlayerBlockBreakEvents.AFTER.register((level, player, pos, state, blockEntity) -> {
+			if (state.getBlock() instanceof GarageDoorBlock && !player.isCreative()) {
+				Block.popResource(level, GarageDoorBlock.controller(pos, state), new ItemStack(ModItems.GARAGE_DOOR));
+			}
+		});
 
 		ItemEvents.USE_ON.register(context -> {
 			Player player = context.getPlayer();
@@ -95,7 +106,8 @@ public final class ProtectionEvents {
 			return true;
 		}
 
-		if (!(state.getBlock() instanceof ToolCupboardBlock) && !(state.getBlock() instanceof RustDoorBlock)) {
+		if (!(state.getBlock() instanceof ToolCupboardBlock) && !(state.getBlock() instanceof RustDoorBlock)
+				&& !(state.getBlock() instanceof GarageDoorBlock)) {
 			return true;
 		}
 
