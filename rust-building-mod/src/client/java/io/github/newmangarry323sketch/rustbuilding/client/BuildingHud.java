@@ -88,7 +88,9 @@ public final class BuildingHud {
 			return lines;
 		}
 
-		if (!player.getMainHandItem().is(ModItems.HAMMER) && !player.getOffhandItem().is(ModItems.HAMMER)) {
+		boolean hammer = player.getMainHandItem().is(ModItems.HAMMER) || player.getOffhandItem().is(ModItems.HAMMER);
+
+		if (!hammer || player.isSpectator()) {
 			return lines;
 		}
 

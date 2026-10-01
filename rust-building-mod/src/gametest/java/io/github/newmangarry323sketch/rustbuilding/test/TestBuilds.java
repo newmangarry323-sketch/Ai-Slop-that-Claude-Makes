@@ -107,9 +107,4 @@ final class TestBuilds {
 		level.setBlock(doorway, door.setValue(DoorBlock.HALF, DoubleBlockHalf.LOWER), Block.UPDATE_ALL);
 		level.setBlock(doorway.above(), door.setValue(DoorBlock.HALF, DoubleBlockHalf.UPPER), Block.UPDATE_ALL);
 	}
-
-	/** Absolute centre of the slab of a cell, for aiming the camera. */
-	static BlockPos centre(int cellX, int cellZ, int y) {
-		return Grid.slabAnchor(cellX, cellZ, y);
-	}
 }

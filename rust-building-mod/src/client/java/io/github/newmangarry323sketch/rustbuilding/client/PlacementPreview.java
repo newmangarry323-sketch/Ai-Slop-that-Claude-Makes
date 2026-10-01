@@ -60,6 +60,11 @@ public final class PlacementPreview {
 
 	@Nullable
 	public static ItemStack heldPlan(LocalPlayer player) {
+		// Spectators cannot use items, so there is nothing to preview.
+		if (player.isSpectator()) {
+			return null;
+		}
+
 		if (player.getMainHandItem().is(ModItems.BUILDING_PLAN)) {
 			return player.getMainHandItem();
 		}
