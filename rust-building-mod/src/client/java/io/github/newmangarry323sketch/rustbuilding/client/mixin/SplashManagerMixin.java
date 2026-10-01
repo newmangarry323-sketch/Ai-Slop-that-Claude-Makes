@@ -12,7 +12,7 @@ import io.github.newmangarry323sketch.rustbuilding.client.RustcraftSplash;
 
 /**
  * The title screen's splash text is always RUSTcraft. Minecraft normally picks one at random from
- * texts/splashes.txt, except on Christmas Eve, New Year's Day and Halloween, when it uses a fixed one;
+ * texts/splashes.txt, except on its Christmas, New Year and Halloween dates, when it uses a fixed one;
  * answering before any of that covers every day.
  */
 @Mixin(SplashManager.class)
