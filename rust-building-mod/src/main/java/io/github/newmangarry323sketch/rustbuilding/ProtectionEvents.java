@@ -13,6 +13,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.TntBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
 import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
@@ -28,9 +29,9 @@ import io.github.newmangarry323sketch.rustbuilding.privilege.BuildingPrivilege;
 import io.github.newmangarry323sketch.rustbuilding.registry.ModItems;
 
 /**
- * Building privilege for everything that is not a building piece: placing any block inside someone
- * else's cupboard zone is blocked, and their cupboards and doors cannot be picked up. Other blocks can
- * still be broken, as deployables can be destroyed in Rust.
+ * Building privilege for everything that is not a building piece: placing any block (except TNT)
+ * inside someone else's cupboard zone is blocked, and their cupboards and doors cannot be picked up.
+ * Other blocks can still be broken, as deployables can be destroyed in Rust.
  */
 public final class ProtectionEvents {
 	private static final Map<UUID, Long> LAST_HAMMER_HIT = new HashMap<>();
@@ -45,6 +46,11 @@ public final class ProtectionEvents {
 			Player player = context.getPlayer();
 
 			if (player == null || !(context.getItemInHand().getItem() instanceof BlockItem blockItem)) {
+				return null;
+			}
+
+			// Explosives are not building: raiders may set TNT against a base, as they throw C4 in Rust.
+			if (blockItem.getBlock() instanceof TntBlock) {
 				return null;
 			}
 

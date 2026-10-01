@@ -9,11 +9,11 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.properties.BlockSetType;
 import net.minecraft.world.level.material.MapColor;
-import net.minecraft.world.level.material.PushReaction;
 
 import net.fabricmc.fabric.api.object.builder.v1.block.type.BlockSetTypeBuilder;
 import net.fabricmc.fabric.api.registry.FlammableBlockRegistry;
@@ -79,8 +79,8 @@ public final class ModBlocks {
 	}
 
 	private static BlockBehaviour.Properties buildingProperties(BuildingTier tier) {
+		// Pistons cannot move blocks that cannot be mined, so wood and above stay put without a push reaction.
 		BlockBehaviour.Properties properties = BlockBehaviour.Properties.of()
-				.pushReaction(PushReaction.BLOCK)
 				.noLootTable();
 
 		return switch (tier) {
@@ -90,7 +90,6 @@ public final class ModBlocks {
 					.sound(SoundType.SCAFFOLDING)
 					.strength(0.3F, 0.5F)
 					.noOcclusion()
-					.isViewBlocking((state, level, pos) -> false)
 					.isSuffocating((state, level, pos) -> false)
 					.isRedstoneConductor((state, level, pos) -> false)
 					.ignitedByLava();
@@ -115,13 +114,12 @@ public final class ModBlocks {
 		};
 	}
 
+	/** Starts from the iron door (so pistons break the door rather than split it) with more health. */
 	private static BlockBehaviour.Properties doorProperties(MapColor color, SoundType sound) {
-		return BlockBehaviour.Properties.of()
+		return BlockBehaviour.Properties.ofLegacyCopy(Blocks.IRON_DOOR)
 				.mapColor(color)
 				.sound(sound)
-				.strength(5.0F, BUILDING_BLAST_RESISTANCE)
-				.noOcclusion()
-				.pushReaction(PushReaction.BLOCK);
+				.strength(5.0F, BUILDING_BLAST_RESISTANCE);
 	}
 
 	private static <T extends Block> T register(String name, Function<BlockBehaviour.Properties, T> factory, BlockBehaviour.Properties properties) {

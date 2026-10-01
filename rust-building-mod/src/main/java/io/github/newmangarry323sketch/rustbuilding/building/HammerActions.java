@@ -26,7 +26,7 @@ public final class HammerActions {
 
 	@Nullable
 	private static PieceRef locate(ServerLevel level, Player player, BlockPos pos) {
-		if (player.distanceToSqr(pos.getCenter()) > MAX_DISTANCE_SQR) {
+		if (pos.distToCenterSqr(player.getEyePosition()) > MAX_DISTANCE_SQR) {
 			return null;
 		}
 

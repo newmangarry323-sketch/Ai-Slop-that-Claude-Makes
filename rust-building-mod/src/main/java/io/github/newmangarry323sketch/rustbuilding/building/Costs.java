@@ -1,6 +1,7 @@
 package io.github.newmangarry323sketch.rustbuilding.building;
 
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -66,8 +67,17 @@ public final class Costs {
 
 		while (remaining > 0) {
 			int count = Math.min(remaining, 64);
-			player.getInventory().placeItemBackInInventory(new ItemStack(tier.material(), count));
+			giveOrDrop(player, new ItemStack(tier.material(), count));
 			remaining -= count;
+		}
+	}
+
+	/** Puts a stack in the player's inventory, dropping at their feet whatever does not fit. */
+	public static void giveOrDrop(Player player, ItemStack stack) {
+		player.getInventory().add(stack);
+
+		if (!stack.isEmpty() && player.level() instanceof ServerLevel serverLevel) {
+			player.spawnAtLocation(serverLevel, stack);
 		}
 	}
 

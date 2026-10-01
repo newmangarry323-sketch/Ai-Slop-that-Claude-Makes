@@ -60,7 +60,9 @@ jobs:
 
       # `build` compiles everything and runs the server game tests in src/gametest.
       - name: Build and run the server game tests
-        run: ./gradlew build --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew build --stacktrace 2>&1 | tee gradle-build.log
 
       # TEMPORARY while porting to 26.3: print the signatures of the vanilla classes this mod
       # touches, so compile errors can be fixed without a local copy of the game.
@@ -103,9 +105,21 @@ jobs:
             net.minecraft.gametest.framework.GameTestHelper \
             net.minecraft.world.level.block.SoundType \
             net.minecraft.sounds.SoundEvents \
+            net.minecraft.world.level.material.PushReaction \
+            net.minecraft.world.entity.LivingEntity \
+            net.minecraft.client.Options \
+            net.minecraft.server.MinecraftServer \
+            net.minecraft.world.phys.Vec3 \
+            net.minecraft.world.level.BlockGetter \
+            net.minecraft.world.level.chunk.LevelChunk \
+            net.minecraft.world.level.storage.SavedDataStorage \
+            net.minecraft.client.player.LocalPlayer \
+            net.minecraft.client.renderer.rendertype.RenderTypes \
+            com.mojang.blaze3d.vertex.PoseStack \
+            com.mojang.blaze3d.vertex.VertexConsumer \
             ; do
             echo "=== $c"
-            javap -cp "$jars" -protected "$c" 2>&1 | grep -v "^Compiled from" | head -400
+            javap -cp "$jars" -protected "$c" 2>&1 | grep -v "^Compiled from" | head -1500
           done
 
       - name: List the jar's contents

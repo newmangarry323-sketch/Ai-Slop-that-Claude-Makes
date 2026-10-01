@@ -54,9 +54,16 @@ public class CodeLockScreen extends MenuScreen {
 	protected void afterLayout(int x, int y) {
 		this.codeBox = new EditBox(this.font, x + (BUTTON_WIDTH - 60) / 2, y - 22, 60, 18, Component.translatable("screen.rustbuilding.lock.code"));
 		this.codeBox.setMaxLength(4);
-		this.codeBox.setFilter(text -> text.chars().allMatch(c -> c >= '0' && c <= '9'));
 		this.codeBox.setValue(this.typed);
-		this.codeBox.setResponder(text -> this.typed = text);
+		this.codeBox.setResponder(text -> {
+			String digits = text.replaceAll("[^0-9]", "");
+
+			if (!digits.equals(text)) {
+				this.codeBox.setValue(digits);
+			}
+
+			this.typed = digits;
+		});
 		this.addRenderableWidget(this.codeBox);
 		this.setInitialFocus(this.codeBox);
 	}

@@ -15,6 +15,7 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 
 import io.github.newmangarry323sketch.rustbuilding.block.entity.ToolCupboardBlockEntity;
 import io.github.newmangarry323sketch.rustbuilding.building.BuildingTier;
+import io.github.newmangarry323sketch.rustbuilding.building.Costs;
 import io.github.newmangarry323sketch.rustbuilding.building.HammerActions;
 import io.github.newmangarry323sketch.rustbuilding.building.PieceType;
 import io.github.newmangarry323sketch.rustbuilding.lock.CodeLock;
@@ -159,7 +160,7 @@ public final class ModNetworking {
 				if (lock.isLocked() && lock.isOwner(player)) {
 					lock.remove();
 					holder.lockChanged();
-					player.getInventory().placeItemBackInInventory(new ItemStack(ModItems.CODE_LOCK));
+					Costs.giveOrDrop(player, new ItemStack(ModItems.CODE_LOCK));
 					player.sendOverlayMessage(Component.translatable("message.rustbuilding.lock_removed"));
 				}
 			}
@@ -185,7 +186,7 @@ public final class ModNetworking {
 	}
 
 	private static boolean inReach(ServerPlayer player, BlockPos pos) {
-		return player.distanceToSqr(pos.getCenter()) <= REACH_SQR;
+		return pos.distToCenterSqr(player.getEyePosition()) <= REACH_SQR;
 	}
 
 	private static void click(ServerLevel level, BlockPos pos, float pitch) {

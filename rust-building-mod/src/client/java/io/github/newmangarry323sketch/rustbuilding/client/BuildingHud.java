@@ -52,8 +52,8 @@ public final class BuildingHud {
 		}
 
 		List<Line> lines = lines(minecraft, minecraft.player);
-		int width = minecraft.getWindow().getGuiScaledWidth();
-		int y = minecraft.getWindow().getGuiScaledHeight() / 2 + 14;
+		int width = graphics.guiWidth();
+		int y = graphics.guiHeight() / 2 + 14;
 
 		for (Line line : lines) {
 			graphics.text(minecraft.font, line.text(), (width - minecraft.font.width(line.text())) / 2, y, line.color(), true);

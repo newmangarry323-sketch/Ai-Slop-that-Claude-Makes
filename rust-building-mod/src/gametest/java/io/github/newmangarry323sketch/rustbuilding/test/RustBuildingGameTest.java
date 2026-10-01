@@ -61,6 +61,10 @@ public class RustBuildingGameTest {
 				"expected " + tier + " " + kind + " at " + pos + " but found " + state);
 	}
 
+	private static Vec3 centreOf(BlockPos pos) {
+		return new Vec3(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
+	}
+
 	private static void checkAir(GameTestHelper helper, BlockPos pos) {
 		BlockState state = helper.getLevel().getBlockState(pos);
 		check(helper, state.isAir(), "expected air at " + pos + " but found " + state);
@@ -277,7 +281,7 @@ public class RustBuildingGameTest {
 		BuildingOps.upgrade(level, wall, BuildingTier.STONE);
 
 		// A TNT-sized blast right outside the middle of the wall.
-		Vec3 blast = north.pos(1, 2).north().getCenter();
+		Vec3 blast = centreOf(north.pos(1, 2).north());
 		level.explode(null, blast.x, blast.y, blast.z, 4.0F, Level.ExplosionInteraction.TNT);
 		check(helper, Structure.hasWall(level, north), "one TNT does not break stone (500 HP)");
 		check(helper, PieceDamage.get(level).get(wall.anchor()) == RaidDamage.TNT_DAMAGE,
@@ -297,7 +301,7 @@ public class RustBuildingGameTest {
 		Edge north = TestBuilds.north(c.x(), c.z(), c.y());
 		TestBuilds.wall(level, PieceType.WALL, north);
 
-		Vec3 blast = north.pos(1, 2).north().getCenter();
+		Vec3 blast = centreOf(north.pos(1, 2).north());
 		level.explode(null, blast.x, blast.y, blast.z, 4.0F, Level.ExplosionInteraction.TNT);
 		checkAir(helper, north.pos(1, 2));
 		helper.succeed();
@@ -311,7 +315,7 @@ public class RustBuildingGameTest {
 		level.setBlock(lower, door.setValue(DoorBlock.HALF, DoubleBlockHalf.LOWER), Block.UPDATE_ALL);
 		level.setBlock(lower.above(), door.setValue(DoorBlock.HALF, DoubleBlockHalf.UPPER), Block.UPDATE_ALL);
 
-		Vec3 blast = lower.north().getCenter();
+		Vec3 blast = centreOf(lower.north());
 		level.explode(null, blast.x, blast.y, blast.z, 4.0F, Level.ExplosionInteraction.TNT);
 		checkAir(helper, lower);
 		checkAir(helper, lower.above());

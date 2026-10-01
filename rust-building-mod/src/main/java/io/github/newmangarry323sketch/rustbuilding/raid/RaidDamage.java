@@ -81,7 +81,9 @@ public final class RaidDamage {
 
 	/**
 	 * Damage scales with the blast's power and falls off with its distance from the nearest block of the
-	 * piece: full strength up to one block away, a quarter at four blocks and beyond.
+	 * piece: full strength up to 1.5 blocks away, down to a quarter at 4.5 blocks and beyond. Primed TNT
+	 * explodes from the bottom of its block, about 1.1 blocks from the centre of a block beside it, so
+	 * "right against the piece" has to count as full strength.
 	 */
 	public static int damageFrom(Explosion explosion, Collection<BlockPos> blocks) {
 		double nearestSqr = Double.MAX_VALUE;
@@ -94,7 +96,7 @@ public final class RaidDamage {
 			return 0;
 		}
 
-		double falloff = Mth.clamp(1.25 - 0.25 * Math.sqrt(nearestSqr), 0.25, 1.0);
+		double falloff = Mth.clamp(1.0 - 0.25 * (Math.sqrt(nearestSqr) - 1.5), 0.25, 1.0);
 		return (int) Math.round(TNT_DAMAGE * (explosion.radius() / TNT_POWER) * falloff);
 	}
 
