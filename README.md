@@ -22,10 +22,11 @@ It reads your specified folder and displays them
 A **Fabric** mod for **Minecraft 26.3** that brings building from the game Rust: a building plan
 that places foundations, walls, doorways, windows, wall frames, floors and stairs on a grid, a hammer
 to upgrade them twig → wood → stone → sheet metal → armored, a tool cupboard for building privilege
-and upkeep (unpaid bases decay), code-locked doors and garage doors, and raiding with TNT.
+and upkeep (unpaid bases decay), code-locked doors and garage doors, raiding with TNT, and a
+RUSTcraft splash on the title screen.
 
 Everything is in [`rust-building-mod/`](rust-building-mod/), including the ready-to-use
-`rust-building-1.1.0.jar` and a guide to playing and building it.
+`rust-building-1.2.0.jar` and a guide to playing and building it.
 
 
 

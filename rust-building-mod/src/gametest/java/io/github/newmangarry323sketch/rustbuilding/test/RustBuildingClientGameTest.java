@@ -30,6 +30,7 @@ import io.github.newmangarry323sketch.rustbuilding.building.Grid;
 import io.github.newmangarry323sketch.rustbuilding.building.PieceRef;
 import io.github.newmangarry323sketch.rustbuilding.building.PieceType;
 import io.github.newmangarry323sketch.rustbuilding.building.Structure;
+import io.github.newmangarry323sketch.rustbuilding.client.RustcraftSplash;
 import io.github.newmangarry323sketch.rustbuilding.client.screen.CodeLockScreen;
 import io.github.newmangarry323sketch.rustbuilding.client.screen.PieceMenuScreen;
 import io.github.newmangarry323sketch.rustbuilding.client.screen.ToolCupboardScreen;
@@ -60,6 +61,10 @@ public class RustBuildingClientGameTest implements FabricClientGameTest {
 		// The title screen, with the mod's splash text, once its fade-in is over.
 		context.waitTicks(40);
 		context.takeScreenshot("rustbuilding-title");
+
+		if (context.computeOnClient(client -> client.gui.splashManager().getSplash()) != RustcraftSplash.SPLASH) {
+			throw new AssertionError("The title screen's splash should be RUSTcraft");
+		}
 
 		try (TestSingleplayerContext singleplayer = context.worldBuilder().create()) {
 			singleplayer.getConnection().waitForChunksRender();

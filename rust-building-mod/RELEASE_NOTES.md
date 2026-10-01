@@ -1,8 +1,13 @@
 Rust-style building for Minecraft **26.3** on **Fabric**.
 
-Drop `rust-building-1.1.0.jar` into your `mods` folder together with
+Drop `rust-building-1.2.0.jar` into your `mods` folder together with
 [Fabric API](https://modrinth.com/mod/fabric-api) (0.161.0+26.3 or newer) and start the game with
 Fabric Loader 0.19.5 or newer. It has to be installed on the server and on every client.
+
+**New in 1.2.0**
+
+- The title screen's splash text says **RUSTcraft** - every day, including the dates Minecraft
+  normally shows a holiday splash.
 
 **New in 1.1.0**
 

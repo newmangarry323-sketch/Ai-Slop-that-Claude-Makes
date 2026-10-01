@@ -131,12 +131,3 @@ jobs:
           files: |
             rust-building-mod/build/libs/rust-building-${{ steps.meta.outputs.version }}.jar
             screenshots/*.png
-
-      # Temporary: how 26.3 picks the title screen's splash text.
-      - name: Dump the splash classes
-        if: always()
-        run: |
-          jar=$(find .gradle/loom-cache -name 'minecraft-clientOnly-*.jar' | head -1)
-          echo "client jar: $jar"
-          javap -p -c -classpath "$jar" net.minecraft.client.resources.SplashManager | head -400 || true
-          javap -p -classpath "$jar" net.minecraft.client.gui.components.SplashRenderer net.minecraft.client.gui.screens.TitleScreen | head -200 || true

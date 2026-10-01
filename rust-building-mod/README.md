@@ -15,12 +15,16 @@ bases with TNT.
 *Screenshots are taken automatically by the client game test (`src/gametest`) in a real Minecraft 26.3
 client on every release build.*
 
+The title screen's splash text says **RUSTcraft** while the mod is installed:
+
+<img src="docs/title.png" width="427" alt="The Minecraft title screen with the yellow splash text RUSTcraft">
+
 ## Download and install
 
 1. Install [Fabric Loader](https://fabricmc.net/use/installer/) **0.19.5 or newer** for Minecraft **26.3**.
 2. Put [Fabric API](https://modrinth.com/mod/fabric-api) **0.161.0+26.3** (or newer for 26.3) in your `mods` folder.
-3. Put **`rust-building-1.1.0.jar`** in your `mods` folder. It is in this folder and on the
-   [releases page](https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases) (tag `rust-building-v1.1.0`).
+3. Put **`rust-building-1.2.0.jar`** in your `mods` folder. It is in this folder and on the
+   [releases page](https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases) (tag `rust-building-v1.2.0`).
 
 The mod adds blocks and items, so it must be installed on the **server and on every client**. It needs
 Java 25, the same as Minecraft 26.3 itself: the official launcher provides it, and a dedicated server
@@ -184,7 +188,7 @@ You need a **JDK 25** (for example [Eclipse Temurin](https://adoptium.net/)). Gr
 
 ```
 cd rust-building-mod
-./gradlew build                # compiles, runs the server game tests, writes build/libs/rust-building-1.1.0.jar
+./gradlew build                # compiles, runs the server game tests, writes build/libs/rust-building-1.2.0.jar
 ./gradlew runClient            # starts Minecraft with the mod, to try it
 ./gradlew runClientGameTest    # the client test: builds a demo base and takes screenshots
 ```
@@ -209,6 +213,7 @@ On Windows use `gradlew.bat`. GitHub Actions does the same on every push that to
 | `lock/CodeLock.java` | the code lock |
 | `client/PlacementPreview.java`, `BuildingHud.java` | the blue/red preview and the text under the crosshair |
 | `client/screen/` | the menus |
+| `client/mixin/SplashManagerMixin.java` | makes the title screen's splash text RUSTcraft |
 | `src/gametest/` | automated server tests and the screenshot test |
 | `tools/make_textures.py`, `make_assets.py` | redraw the textures and regenerate the JSON files |
 
