@@ -22,6 +22,7 @@ import net.fabricmc.fabric.api.registry.FlammableBlockRegistry;
 import io.github.newmangarry323sketch.rustbuilding.RustBuilding;
 import io.github.newmangarry323sketch.rustbuilding.block.BuildingBlock;
 import io.github.newmangarry323sketch.rustbuilding.block.BuildingStairsBlock;
+import io.github.newmangarry323sketch.rustbuilding.block.GarageDoorBlock;
 import io.github.newmangarry323sketch.rustbuilding.block.RustDoorBlock;
 import io.github.newmangarry323sketch.rustbuilding.block.ToolCupboardBlock;
 import io.github.newmangarry323sketch.rustbuilding.building.BuildingTier;
@@ -68,6 +69,17 @@ public final class ModBlocks {
 	public static final RustDoorBlock ARMORED_DOOR = register("armored_door",
 			properties -> new RustDoorBlock(ARMORED_SET, 800, properties), doorProperties(MapColor.COLOR_GRAY, SoundType.NETHERITE_BLOCK));
 
+	public static final GarageDoorBlock GARAGE_DOOR = register("garage_door", GarageDoorBlock::new,
+			BlockBehaviour.Properties.of()
+					.mapColor(MapColor.METAL)
+					.sound(SoundType.METAL)
+					.strength(5.0F, BUILDING_BLAST_RESISTANCE)
+					.pushReaction(PushReaction.IMMOVEABLE)
+					.noOcclusion()
+					.noLootTable()
+					.isRedstoneConductor((state, level, pos) -> false)
+					.isSuffocating((state, level, pos) -> false));
+
 	private ModBlocks() {
 	}
 
@@ -82,7 +94,8 @@ public final class ModBlocks {
 	private static BlockBehaviour.Properties buildingProperties(BuildingTier tier) {
 		BlockBehaviour.Properties properties = BlockBehaviour.Properties.of()
 				.pushReaction(PushReaction.IMMOVEABLE)
-				.noLootTable();
+				.noLootTable()
+				.randomTicks();
 
 		return switch (tier) {
 			// Twig: a lattice of sticks. Breaks by hand or to any blast, burns, and can be seen through.

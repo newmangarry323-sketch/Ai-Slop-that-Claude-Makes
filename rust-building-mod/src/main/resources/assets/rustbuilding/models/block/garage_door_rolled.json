@@ -1,0 +1,77 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": {
+    "door": "rustbuilding:block/garage_door_bottom",
+    "particle": "rustbuilding:block/garage_door_bottom"
+  },
+  "elements": [
+    {
+      "from": [
+        0,
+        14,
+        6
+      ],
+      "to": [
+        16,
+        16,
+        10
+      ],
+      "faces": {
+        "north": {
+          "texture": "#door",
+          "uv": [
+            0,
+            12,
+            16,
+            14
+          ]
+        },
+        "south": {
+          "texture": "#door",
+          "uv": [
+            0,
+            12,
+            16,
+            14
+          ]
+        },
+        "east": {
+          "texture": "#door",
+          "uv": [
+            0,
+            12,
+            16,
+            14
+          ]
+        },
+        "west": {
+          "texture": "#door",
+          "uv": [
+            0,
+            12,
+            16,
+            14
+          ]
+        },
+        "up": {
+          "texture": "#door",
+          "uv": [
+            0,
+            12,
+            16,
+            14
+          ]
+        },
+        "down": {
+          "texture": "#door",
+          "uv": [
+            0,
+            12,
+            16,
+            14
+          ]
+        }
+      }
+    }
+  ]
+}

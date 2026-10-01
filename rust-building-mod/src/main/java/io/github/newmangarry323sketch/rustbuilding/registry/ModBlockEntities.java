@@ -9,6 +9,7 @@ import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.fabricmc.fabric.api.object.builder.v1.block.entity.FabricBlockEntityTypeBuilder;
 
 import io.github.newmangarry323sketch.rustbuilding.RustBuilding;
+import io.github.newmangarry323sketch.rustbuilding.block.entity.GarageDoorBlockEntity;
 import io.github.newmangarry323sketch.rustbuilding.block.entity.RustDoorBlockEntity;
 import io.github.newmangarry323sketch.rustbuilding.block.entity.ToolCupboardBlockEntity;
 
@@ -18,6 +19,9 @@ public final class ModBlockEntities {
 
 	public static final BlockEntityType<RustDoorBlockEntity> RUST_DOOR =
 			register("rust_door", RustDoorBlockEntity::new, ModBlocks.SHEET_METAL_DOOR, ModBlocks.ARMORED_DOOR);
+
+	public static final BlockEntityType<GarageDoorBlockEntity> GARAGE_DOOR =
+			register("garage_door", GarageDoorBlockEntity::new, ModBlocks.GARAGE_DOOR);
 
 	private ModBlockEntities() {
 	}

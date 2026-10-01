@@ -12,10 +12,12 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.block.state.BlockState;
 
+import io.github.newmangarry323sketch.rustbuilding.block.Inserts;
 import io.github.newmangarry323sketch.rustbuilding.privilege.BuildingPrivilege;
 import io.github.newmangarry323sketch.rustbuilding.raid.PieceDamage;
 import io.github.newmangarry323sketch.rustbuilding.raid.RaidDamage;
 import io.github.newmangarry323sketch.rustbuilding.registry.ModBlocks;
+import io.github.newmangarry323sketch.rustbuilding.upkeep.Decay;
 
 /** What the hammer does on the server. Every action re-checks reach and building privilege. */
 public final class HammerActions {
@@ -92,6 +94,12 @@ public final class HammerActions {
 		Component name = ref.describe(level);
 		int refund = tier.cost(ref.units(level)) / 2;
 		BlockState sample = level.getBlockState(pos);
+
+		// The owner gets back any door or garage door fitted to the wall; a raid or decay destroys them.
+		if (ref instanceof PieceRef.Wall wall) {
+			Inserts.removeAll(level, wall.edge(), true);
+		}
+
 		BuildingOps.destroy(level, ref);
 		Costs.give(player, tier, refund);
 		level.playSound(null, pos, sample.getSoundType().getBreakSound(), SoundSource.BLOCKS, 1.0F, 0.9F);
@@ -110,7 +118,7 @@ public final class HammerActions {
 		int damage = PieceDamage.get(level).get(ref.anchor());
 
 		if (damage <= 0) {
-			player.sendOverlayMessage(Component.translatable("message.rustbuilding.health",
+			player.sendOverlayMessage(Component.translatable(healthMessage(level, ref, tier),
 					ref.describe(level), RaidDamage.health(level, ref), tier.health()));
 			return;
 		}
@@ -133,6 +141,12 @@ public final class HammerActions {
 		level.playSound(null, pos, level.getBlockState(pos).getSoundType().getHitSound(), SoundSource.BLOCKS, 1.0F, 1.2F);
 		player.sendOverlayMessage(Component.translatable("message.rustbuilding.repaired", ref.describe(level), tier.health(), tier.health())
 				.withStyle(ChatFormatting.GREEN));
+	}
+
+	/** The health readout, saying so when nothing pays the piece's upkeep. */
+	private static String healthMessage(ServerLevel level, PieceRef ref, BuildingTier tier) {
+		Decay.Status status = Decay.protection(level, ref.anchor(), tier, level.getGameTime()).status();
+		return status == Decay.Status.DECAYING ? "message.rustbuilding.health_decaying" : "message.rustbuilding.health";
 	}
 
 	private static void fail(Player player, Component message) {

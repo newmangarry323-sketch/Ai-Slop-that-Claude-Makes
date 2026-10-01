@@ -9,15 +9,16 @@ import java.util.Set;
 import org.jspecify.annotations.Nullable;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 
+import io.github.newmangarry323sketch.rustbuilding.block.Inserts;
 import io.github.newmangarry323sketch.rustbuilding.raid.PieceDamage;
 import io.github.newmangarry323sketch.rustbuilding.registry.ModBlocks;
+import io.github.newmangarry323sketch.rustbuilding.upkeep.DecayClocks;
 
 /** Changes to the world: placing, upgrading and destroying pieces, and keeping shared blocks right. */
 public final class BuildingOps {
@@ -76,6 +77,11 @@ public final class BuildingOps {
 				continue;
 			}
 
+			// A door or garage door in the wall goes with it.
+			if (ref instanceof PieceRef.Wall wall) {
+				Inserts.removeAll(level, wall.edge(), false);
+			}
+
 			for (BlockPos pos : own) {
 				level.setBlock(pos, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
 
@@ -132,7 +138,7 @@ public final class BuildingOps {
 			case PieceRef.Wall wall -> {
 				for (int end = 0; end <= 1; end++) {
 					for (int h = 1; h <= Grid.WALL_HEIGHT; h++) {
-						refreshPillar(level, wall.edge().corner(end, h));
+						refreshPillar(level, wall.edge(), end, h);
 					}
 				}
 			}
@@ -167,23 +173,36 @@ public final class BuildingOps {
 		retierLegs(level, pos, best);
 	}
 
-	/** A corner pillar exists while a wall block touches it at that height, at that wall's best grade. */
-	private static void refreshPillar(Level level, BlockPos corner) {
+	/**
+	 * A corner pillar exists while a wall meeting at its corner reaches that height there (see
+	 * {@link PieceType#needsPillar}), at the best grade among those walls.
+	 */
+	private static void refreshPillar(Level level, Edge from, int end, int h) {
+		BlockPos corner = from.corner(end, h);
+
 		if (!Structure.isKind(level, corner, BuildingKind.WALL)) {
 			return;
 		}
 
 		BuildingTier best = null;
 
-		for (Direction direction : Direction.Plane.HORIZONTAL) {
-			BlockState neighbour = level.getBlockState(corner.relative(direction));
+		for (Edge edge : Grid.edgesAtCorner(corner.getX(), corner.getZ(), from.y0())) {
+			int edgeEnd = edge.endAt(corner.getX(), corner.getZ());
 
-			if (Structure.kindOf(neighbour) == BuildingKind.WALL) {
-				BuildingTier tier = Structure.tierOf(neighbour);
+			if (edgeEnd < 0 || !Structure.hasWall(level, edge)) {
+				continue;
+			}
 
-				if (tier != null && (best == null || tier.ordinal() > best.ordinal())) {
-					best = tier;
-				}
+			PieceRef.Wall wall = new PieceRef.Wall(edge);
+
+			if (!wall.type(level).needsPillar(edgeEnd, h)) {
+				continue;
+			}
+
+			BuildingTier tier = wall.tier(level);
+
+			if (tier != null && (best == null || tier.ordinal() > best.ordinal())) {
+				best = tier;
 			}
 		}
 
@@ -222,9 +241,11 @@ public final class BuildingOps {
 		level.setBlock(pos, target.withPropertiesOf(old), Block.UPDATE_ALL);
 	}
 
+	/** A piece placed, upgraded or gone starts again with full health and no decay counted. */
 	private static void clearDamage(Level level, PieceRef ref) {
 		if (level instanceof ServerLevel serverLevel) {
 			PieceDamage.get(serverLevel).clear(ref.anchor());
+			DecayClocks.get(serverLevel).clear(ref.anchor());
 		}
 	}
 }

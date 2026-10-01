@@ -336,6 +336,9 @@ public class RustBuildingGameTest {
 			check(helper, checks.get(i).tier(helper.getLevel()) == expected.get(i), checks.get(i) + " should be " + expected.get(i));
 		}
 
+		Edge garage = TestBuilds.east(c.x(), c.z() - 1, c.y());
+		check(helper, new PieceRef.Wall(garage).type(helper.getLevel()) == PieceType.WALL_FRAME, "the east wall is a frame");
+		check(helper, helper.getLevel().getBlockState(garage.pos(1, 1)).is(ModBlocks.GARAGE_DOOR), "with a garage door in it");
 		helper.succeed();
 	}
 }

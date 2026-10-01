@@ -108,6 +108,19 @@ public final class Grid {
 		return new int[] {cellX, cellZ};
 	}
 
+	/**
+	 * The four edges that meet at a grid corner (x and z both on lines), for the storey whose slab is at
+	 * {@code y0}: the walls running east, west, south and north from it.
+	 */
+	public static List<Edge> edgesAtCorner(int x, int z, int y0) {
+		return List.of(
+				Edge.alongX(z, cell(x), y0),
+				Edge.alongX(z, cell(x) - 1, y0),
+				Edge.alongZ(x, cell(z), y0),
+				Edge.alongZ(x, cell(z) - 1, y0)
+		);
+	}
+
 	/** The four edges around a cell for the storey whose slab is at {@code y0}. */
 	public static List<Edge> edgesOf(int cellX, int cellZ, int y0) {
 		return List.of(

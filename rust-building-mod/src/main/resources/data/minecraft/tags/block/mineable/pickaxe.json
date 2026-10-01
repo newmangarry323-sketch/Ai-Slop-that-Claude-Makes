@@ -2,6 +2,7 @@
   "replace": false,
   "values": [
     "rustbuilding:sheet_metal_door",
-    "rustbuilding:armored_door"
+    "rustbuilding:armored_door",
+    "rustbuilding:garage_door"
   ]
 }

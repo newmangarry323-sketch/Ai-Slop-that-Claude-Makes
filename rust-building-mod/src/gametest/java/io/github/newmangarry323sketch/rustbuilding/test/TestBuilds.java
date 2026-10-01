@@ -61,7 +61,8 @@ final class TestBuilds {
 
 	/**
 	 * A two-by-two base showing every grade: armored and sheet metal foundations, stone and wood walls
-	 * with a doorway (and a sheet metal door) and a window, twig on the first floor, and a staircase.
+	 * with a doorway (and a sheet metal door) and a window, a sheet metal wall frame with a garage door,
+	 * twig on the first floor, and a staircase.
 	 *
 	 * @param y the slab level of the foundations, one above the ground
 	 */
@@ -79,7 +80,7 @@ final class TestBuilds {
 		wall(level, PieceType.WALL, north(cellX + 1, cellZ, y));
 		wall(level, PieceType.WALL, west(cellX, cellZ, y));
 		wall(level, PieceType.WINDOW, west(cellX, cellZ + 1, y));
-		wall(level, PieceType.WALL, east(cellX + 1, cellZ, y));
+		wall(level, PieceType.WALL_FRAME, east(cellX + 1, cellZ, y));
 		wall(level, PieceType.HALF_WALL, east(cellX + 1, cellZ + 1, y));
 
 		place(level, PieceType.STAIRS, new PiecePlanner.StairsTarget(cellX, cellZ, y, Direction.NORTH));
@@ -100,6 +101,10 @@ final class TestBuilds {
 		BuildingOps.upgrade(level, new PieceRef.Wall(east(cellX + 1, cellZ + 1, y)), BuildingTier.METAL);
 		BuildingOps.upgrade(level, new PieceRef.Wall(west(cellX, cellZ + 1, y)), BuildingTier.ARMORED);
 		BuildingOps.upgrade(level, new PieceRef.Stairs(cellX, cellZ, y), BuildingTier.WOOD);
+		BuildingOps.upgrade(level, new PieceRef.Wall(east(cellX + 1, cellZ, y)), BuildingTier.METAL);
+
+		// A garage door in the sheet metal wall frame.
+		ModBlocks.GARAGE_DOOR.install(level, east(cellX + 1, cellZ, y));
 
 		// A sheet metal door in the doorway.
 		BlockPos doorway = south(cellX, cellZ + 1, y).pos(1, 1);

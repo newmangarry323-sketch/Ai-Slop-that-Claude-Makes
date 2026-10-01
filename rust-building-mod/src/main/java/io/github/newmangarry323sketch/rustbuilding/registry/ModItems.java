@@ -15,6 +15,7 @@ import net.minecraft.world.level.block.Block;
 import io.github.newmangarry323sketch.rustbuilding.RustBuilding;
 import io.github.newmangarry323sketch.rustbuilding.item.BuildingPlanItem;
 import io.github.newmangarry323sketch.rustbuilding.item.CodeLockItem;
+import io.github.newmangarry323sketch.rustbuilding.item.GarageDoorItem;
 import io.github.newmangarry323sketch.rustbuilding.item.HammerItem;
 
 public final class ModItems {
@@ -30,6 +31,8 @@ public final class ModItems {
 	public static final Item SHEET_METAL_DOOR = registerBlockItem(ModBlocks.SHEET_METAL_DOOR, DoubleHighBlockItem::new);
 
 	public static final Item ARMORED_DOOR = registerBlockItem(ModBlocks.ARMORED_DOOR, DoubleHighBlockItem::new);
+
+	public static final Item GARAGE_DOOR = registerBlockItem(ModBlocks.GARAGE_DOOR, GarageDoorItem::new);
 
 	private ModItems() {
 	}

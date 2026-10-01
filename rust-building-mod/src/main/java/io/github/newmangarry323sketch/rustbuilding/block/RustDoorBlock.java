@@ -1,5 +1,6 @@
 package io.github.newmangarry323sketch.rustbuilding.block;
 
+import java.util.List;
 import java.util.function.BiConsumer;
 
 import org.jspecify.annotations.Nullable;
@@ -13,6 +14,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.EntityBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -106,6 +108,11 @@ public class RustDoorBlock extends DoorBlock implements EntityBlock {
 
 	@Override
 	protected void onExplosionHit(BlockState state, ServerLevel level, BlockPos pos, Explosion explosion, BiConsumer<ItemStack, BlockPos> dropConsumer) {
-		RaidDamage.onDoorHit(level, lowerHalf(pos, state), this.maxHealth, explosion);
+		BlockPos lower = lowerHalf(pos, state);
+
+		if (RaidDamage.damageDoor(level, lower, List.of(lower, lower.above()), this.maxHealth, explosion)) {
+			// Removing the bottom half takes the top half with it; neither drops anything.
+			level.setBlock(lower, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+		}
 	}
 }

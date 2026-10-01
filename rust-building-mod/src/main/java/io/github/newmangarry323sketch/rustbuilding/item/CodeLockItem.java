@@ -20,8 +20,8 @@ import io.github.newmangarry323sketch.rustbuilding.lock.LockHolder;
 import io.github.newmangarry323sketch.rustbuilding.privilege.BuildingPrivilege;
 
 /**
- * A code lock. Use it on a Rust door or a tool cupboard and choose a four-digit code; the lock is
- * fitted (and the item used up) when the code is confirmed.
+ * A code lock. Use it on a Rust door, a garage door or a tool cupboard and choose a four-digit code;
+ * the lock is fitted (and the item used up) when the code is confirmed.
  */
 public class CodeLockItem extends Item {
 	public CodeLockItem(Properties properties) {

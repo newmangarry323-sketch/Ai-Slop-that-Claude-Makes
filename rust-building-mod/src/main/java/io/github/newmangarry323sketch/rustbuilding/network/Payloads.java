@@ -52,6 +52,7 @@ public final class Payloads {
 		public static final int AUTHORIZE = 0;
 		public static final int DEAUTHORIZE = 1;
 		public static final int CLEAR = 2;
+		public static final int OPEN_STORAGE = 3;
 
 		public static final Type<CupboardAction> TYPE = new Type<>(RustBuilding.id("cupboard_action"));
 		public static final StreamCodec<RegistryFriendlyByteBuf, CupboardAction> CODEC = StreamCodec.composite(

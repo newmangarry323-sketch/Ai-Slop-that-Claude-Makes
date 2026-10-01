@@ -25,6 +25,7 @@ public final class ModCreativeTab {
 				output.accept(ModItems.CODE_LOCK);
 				output.accept(ModItems.SHEET_METAL_DOOR);
 				output.accept(ModItems.ARMORED_DOOR);
+				output.accept(ModItems.GARAGE_DOOR);
 			})
 			.build();
 

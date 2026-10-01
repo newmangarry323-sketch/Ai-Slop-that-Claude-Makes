@@ -33,7 +33,8 @@ import io.github.newmangarry323sketch.rustbuilding.registry.ModBlocks;
  * <p>Where to aim:
  * <ul>
  * <li>Foundation - the ground, or the side of another foundation to continue the grid.</li>
- * <li>Wall, doorway, window, half and low wall - the top of a foundation or floor, near the edge.</li>
+ * <li>Wall, doorway, window, wall frame, half and low wall - the top of a foundation or floor, near the
+ * edge.</li>
  * <li>Floor - the top of a wall (it goes on your side of it), the side of another floor, or the floor
  * of the room it should cover.</li>
  * <li>Stairs - the floor of the cell; they climb in the direction you face.</li>
@@ -326,7 +327,7 @@ public final class PiecePlanner {
 		// Corner pillars where this wall meets the next one; shared, so only add the missing ones.
 		for (int h = 1; h <= Grid.WALL_HEIGHT; h++) {
 			for (int end = 0; end <= 1; end++) {
-				if (!type.edgeHas(end * 2, h)) {
+				if (!type.needsPillar(end, h)) {
 					continue;
 				}
 
