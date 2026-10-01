@@ -4,6 +4,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.player.ChatVisiblity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.levelgen.Heightmap;
@@ -44,6 +45,9 @@ public class RustBuildingClientGameTest implements FabricClientGameTest {
 	public void runTest(ClientGameTestContext context) {
 		try (TestSingleplayerContext singleplayer = context.worldBuilder().create()) {
 			singleplayer.getConnection().waitForChunksRender();
+
+			// The commands below report back in the chat, which would end up in every screenshot.
+			context.runOnClient(client -> client.options.chatVisibility().set(ChatVisiblity.HIDDEN));
 
 			// First free block above the flat test world's surface; foundations sit there.
 			int ground = singleplayer.getServer().computeOnServer(server ->
@@ -108,6 +112,8 @@ public class RustBuildingClientGameTest implements FabricClientGameTest {
 			context.takeScreenshot("rustbuilding-upgraded");
 
 			context.setScreen(() -> new PieceMenuScreen(PieceType.WALL));
+			// The mouse sits in the middle of the screen; move it off the buttons so none looks hovered.
+			context.getInput().setCursorPos(0, 0);
 			context.waitTicks(2);
 			context.takeScreenshot("rustbuilding-piece-menu");
 
