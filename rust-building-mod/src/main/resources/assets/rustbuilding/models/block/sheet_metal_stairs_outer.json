@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/outer_stairs",
+  "textures": {
+    "bottom": "rustbuilding:block/sheet_metal",
+    "side": "rustbuilding:block/sheet_metal",
+    "top": "rustbuilding:block/sheet_metal"
+  }
+}

@@ -1,0 +1,133 @@
+name: Build Rust Building mod
+
+on:
+  # workflow_dispatch only appears in the Actions UI once this file is on the
+  # default branch, so pushes that touch the mod trigger a build as well.
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: >-
+          Publish the jar as the GitHub release for the version in
+          rust-building-mod/gradle.properties. Leave off to only build and test.
+        type: boolean
+        default: false
+  push:
+    branches:
+      - 'main'
+      - 'claude/**'
+    paths:
+      - 'rust-building-mod/**'
+      - '.github/workflows/build-rust-building-mod.yml'
+      # The committed jar and screenshots come out of this workflow; they need no rebuild.
+      - '!rust-building-mod/rust-building-*.jar'
+      - '!rust-building-mod/docs/**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rust-building-mod-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build, test and screenshot
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: rust-building-mod
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: gradle/actions/wrapper-validation@v6
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Read the mod version
+        id: meta
+        run: |
+          version=$(sed -n 's/^mod_version=//p' gradle.properties)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Rust Building $version"
+
+      - name: Check the resources
+        run: python3 tools/check_resources.py
+
+      # `build` compiles everything and runs the server game tests in src/gametest.
+      - name: Build and run the server game tests
+        run: |
+          set -o pipefail
+          ./gradlew build --stacktrace 2>&1 | tee gradle-build.log
+
+      - name: List the jar's contents
+        run: unzip -l "build/libs/rust-building-${{ steps.meta.outputs.version }}.jar"
+
+      # The client test needs a GPU; these are Mesa's software OpenGL and Vulkan
+      # drivers, as Fabric API's own CI uses. Loom starts a virtual display itself.
+      - name: Install software graphics drivers
+        run: sudo apt-get update -q && sudo apt-get install -yq xvfb libgl1-mesa-dri mesa-vulkan-drivers
+
+      # Starts the real client, builds a demo base and takes screenshots of it,
+      # the placement preview and two menus (src/gametest/.../RustBuildingClientGameTest).
+      - name: Run the client game test
+        timeout-minutes: 20
+        run: |
+          set -o pipefail
+          ./gradlew runClientGameTest --stacktrace 2>&1 | tee gradle-client.log
+
+      - name: Collect the screenshots
+        if: always()
+        run: |
+          mkdir -p ../screenshots
+          find . -path '*/screenshots/*.png' -not -path './docs/*' -exec cp {} ../screenshots/ \;
+          ls -la ../screenshots
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: rust-building-${{ steps.meta.outputs.version }}
+          path: |
+            rust-building-mod/build/libs/rust-building-${{ steps.meta.outputs.version }}.jar
+            screenshots/
+          if-no-files-found: warn
+
+      - name: Summarize the failure
+        if: failure()
+        run: |
+          for log in gradle-build.log gradle-client.log; do
+            [ -f "$log" ] || continue
+            echo "=== $log: compiler errors"
+            grep -A4 ": error:" "$log" | head -200 || true
+            echo "=== $log: tests, errors and exceptions"
+            grep -iE "gametest|test failed|failed:|error|exception|caused by|went wrong" "$log" | grep -vE "^\s+at " | head -150 || true
+          done
+
+      - name: Clear a stale release for this version
+        if: inputs.publish || contains(github.event.head_commit.message, '[mod-release]')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="rust-building-v${{ steps.meta.outputs.version }}"
+          if gh release view "$tag" --json tagName > /dev/null 2>&1; then
+            echo "removing existing release and tag $tag"
+            gh release delete "$tag" --yes --cleanup-tag
+          fi
+
+      - name: Publish the release
+        if: inputs.publish || contains(github.event.head_commit.message, '[mod-release]')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: rust-building-v${{ steps.meta.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Rust Building ${{ steps.meta.outputs.version }} (Fabric, Minecraft 26.3)
+          body_path: rust-building-mod/RELEASE_NOTES.md
+          files: |
+            rust-building-mod/build/libs/rust-building-${{ steps.meta.outputs.version }}.jar
+            screenshots/*.png

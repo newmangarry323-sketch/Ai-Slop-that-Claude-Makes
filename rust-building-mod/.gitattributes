@@ -1,0 +1,7 @@
+# The Gradle start script must keep Unix line endings, the Windows one CRLF.
+/gradlew        text eol=lf
+*.bat           text eol=crlf
+
+# Binary assets
+*.png           binary
+*.jar           binary

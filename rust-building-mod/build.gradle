@@ -1,0 +1,84 @@
+plugins {
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+	archivesName = project.archives_base_name
+}
+
+repositories {
+	// Loom adds the Minecraft, Fabric and Maven Central repositories itself.
+}
+
+loom {
+	splitEnvironmentSourceSets()
+
+	mods {
+		"rustbuilding" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+
+	runs {
+		configureEach {
+			// GitHub's runners trip the client test network synchroniser; see
+			// https://docs.fabricmc.net/develop/automatic-testing#run-game-tests-on-github-actions
+			if (name == 'clientGameTest') {
+				vmArg '-Dfabric.client.gametest.disableNetworkSynchronizer=true'
+			}
+		}
+	}
+}
+
+fabricApi {
+	configureTests {
+		createSourceSet = true
+		modId = 'rustbuilding-test'
+		enableGameTests = true
+		enableClientGameTests = true
+		// Accepting the EULA is required to start the test server: https://aka.ms/MinecraftEULA
+		eula = true
+	}
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+}
+
+processResources {
+	def version = project.version
+	inputs.property "version", version
+
+	filesMatching("fabric.mod.json") {
+		expand "version": version
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+	it.options.encoding = 'UTF-8'
+	// Report every compile error in one pass rather than stopping at 100.
+	it.options.compilerArgs.addAll(['-Xmaxerrs', '1000'])
+}
+
+java {
+	withSourcesJar()
+
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
+}
+
+jar {
+	def projectName = project.name
+	inputs.property "projectName", projectName
+
+	from("LICENSE") {
+		rename { "${it}_${projectName}" }
+	}
+}

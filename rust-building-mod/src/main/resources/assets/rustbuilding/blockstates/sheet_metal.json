@@ -1,0 +1,13 @@
+{
+  "variants": {
+    "kind=slab": {
+      "model": "rustbuilding:block/sheet_metal"
+    },
+    "kind=wall": {
+      "model": "rustbuilding:block/sheet_metal"
+    },
+    "kind=support": {
+      "model": "rustbuilding:block/sheet_metal"
+    }
+  }
+}
