@@ -17,7 +17,15 @@ Play your songs and stuff
 It reads your specified folder and displays them
 
 
+## Rust Building (Minecraft mod)
 
+A **Fabric** mod for **Minecraft 26.3** that brings building from the game Rust: a building plan
+that places foundations, walls, doorways, windows, floors and stairs on a grid, a hammer to upgrade
+them twig → wood → stone → sheet metal → armored, a tool cupboard for building privilege,
+code-locked doors, and raiding with TNT.
+
+Everything is in [`rust-building-mod/`](rust-building-mod/), including the ready-to-use
+`rust-building-1.0.0.jar` and a guide to playing and building it.
 
 
 

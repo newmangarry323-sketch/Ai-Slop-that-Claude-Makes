@@ -29,13 +29,16 @@ public class RustBuildingClientGameTest implements FabricClientGameTest {
 		try (TestSingleplayerContext singleplayer = context.worldBuilder().create()) {
 			singleplayer.getConnection().waitForChunksRender();
 
-			int ground = singleplayer.getServer().computeOnServer(server -> {
+			// First free block above the flat test world's surface; foundations sit there.
+			int ground = singleplayer.getServer().computeOnServer(server ->
+					server.overworld().getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, 8, 8));
+
+			// Out of the way first: the planner refuses to build where someone is standing.
+			singleplayer.getServer().runCommand("/tp @a -16.5 " + ground + " -16.5");
+			singleplayer.getServer().runOnServer(server -> {
 				ServerLevel level = server.overworld();
-				// First free block above the flat test world's surface; foundations sit there.
-				int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, 8, 8);
-				TestBuilds.demoBase(level, 1, 1, y);
-				TestBuilds.slab(level, PieceType.FOUNDATION, 4, 1, y);
-				return y;
+				TestBuilds.demoBase(level, 1, 1, ground);
+				TestBuilds.slab(level, PieceType.FOUNDATION, 4, 1, ground);
 			});
 
 			singleplayer.getServer().runCommand("/time set noon");

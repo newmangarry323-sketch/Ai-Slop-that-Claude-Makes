@@ -122,6 +122,15 @@ jobs:
             javap -cp "$jars" -protected "$c" 2>&1 | grep -v "^Compiled from" | head -1500
           done
 
+      # Last, so it is at the end of the log.
+      - name: Summarize the failure
+        if: failure()
+        run: |
+          echo "=== compiler errors"
+          grep -A4 ": error:" gradle-build.log | head -400 || true
+          echo "=== game tests and exceptions"
+          grep -iE "gametest|test failed|failed:|exception|caused by|went wrong" gradle-build.log | grep -vE "^\s+at " | head -200 || true
+
       - name: List the jar's contents
         run: unzip -l "build/libs/rust-building-${{ steps.meta.outputs.version }}.jar"
 

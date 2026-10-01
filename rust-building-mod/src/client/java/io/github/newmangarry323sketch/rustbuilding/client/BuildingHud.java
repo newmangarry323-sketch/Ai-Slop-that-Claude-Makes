@@ -47,7 +47,7 @@ public final class BuildingHud {
 	private static void extract(GuiGraphicsExtractor graphics, DeltaTracker deltaTracker) {
 		Minecraft minecraft = Minecraft.getInstance();
 
-		if (minecraft.player == null || minecraft.level == null || minecraft.options.hideGui) {
+		if (minecraft.player == null || minecraft.level == null) {
 			return;
 		}
 
