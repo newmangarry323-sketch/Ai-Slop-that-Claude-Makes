@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/stairs",
+  "textures": {
+    "bottom": "rustbuilding:block/armored",
+    "side": "rustbuilding:block/armored",
+    "top": "rustbuilding:block/armored"
+  }
+}

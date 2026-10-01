@@ -1,0 +1,13 @@
+{
+  "replace": false,
+  "values": [
+    "rustbuilding:wood",
+    "rustbuilding:stone",
+    "rustbuilding:sheet_metal",
+    "rustbuilding:armored",
+    "rustbuilding:wood_stairs",
+    "rustbuilding:stone_stairs",
+    "rustbuilding:sheet_metal_stairs",
+    "rustbuilding:armored_stairs"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/inner_stairs",
+  "textures": {
+    "bottom": "rustbuilding:block/twig",
+    "side": "rustbuilding:block/twig",
+    "top": "rustbuilding:block/twig"
+  }
+}

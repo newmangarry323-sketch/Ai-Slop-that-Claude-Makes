@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "rustbuilding:block/tool_cupboard"
+    },
+    "facing=east": {
+      "model": "rustbuilding:block/tool_cupboard",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "rustbuilding:block/tool_cupboard",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "rustbuilding:block/tool_cupboard",
+      "y": 270
+    }
+  }
+}

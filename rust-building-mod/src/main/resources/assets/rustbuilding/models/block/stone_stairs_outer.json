@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/outer_stairs",
+  "textures": {
+    "bottom": "rustbuilding:block/stone",
+    "side": "rustbuilding:block/stone",
+    "top": "rustbuilding:block/stone"
+  }
+}

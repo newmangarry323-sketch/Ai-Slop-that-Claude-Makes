@@ -1,0 +1,8 @@
+{
+  "replace": false,
+  "values": [
+    "rustbuilding:tool_cupboard",
+    "rustbuilding:twig",
+    "rustbuilding:twig_stairs"
+  ]
+}

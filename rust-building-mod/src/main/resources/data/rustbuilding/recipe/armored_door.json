@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "redstone",
+  "ingredients": [
+    "rustbuilding:sheet_metal_door",
+    "minecraft:iron_block",
+    "minecraft:iron_block"
+  ],
+  "result": {
+    "id": "rustbuilding:armored_door"
+  }
+}

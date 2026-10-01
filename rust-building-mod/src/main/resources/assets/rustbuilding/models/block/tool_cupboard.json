@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/orientable",
+  "textures": {
+    "front": "rustbuilding:block/tool_cupboard_front",
+    "side": "rustbuilding:block/tool_cupboard_side",
+    "top": "rustbuilding:block/tool_cupboard_top"
+  }
+}

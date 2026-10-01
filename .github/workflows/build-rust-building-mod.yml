@@ -1,0 +1,211 @@
+name: Build Rust Building mod
+
+on:
+  # workflow_dispatch only appears in the Actions UI once this file is on the
+  # default branch, so pushes that touch the mod trigger a build as well.
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: >-
+          Publish the jar as the GitHub release for the version in
+          rust-building-mod/gradle.properties. Leave off to only build and test.
+        type: boolean
+        default: false
+  push:
+    branches:
+      - 'main'
+      - 'claude/**'
+    paths:
+      - 'rust-building-mod/**'
+      - '.github/workflows/build-rust-building-mod.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rust-building-mod-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and server game tests
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: rust-building-mod
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: gradle/actions/wrapper-validation@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Read the mod version
+        id: meta
+        run: |
+          version=$(sed -n 's/^mod_version=//p' gradle.properties)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Rust Building $version"
+
+      - name: Check the resources
+        run: python3 tools/check_resources.py
+
+      # `build` compiles everything and runs the server game tests in src/gametest.
+      - name: Build and run the server game tests
+        run: ./gradlew build --stacktrace
+
+      # TEMPORARY while porting to 26.3: print the signatures of the vanilla classes this mod
+      # touches, so compile errors can be fixed without a local copy of the game.
+      - name: Dump Minecraft API signatures
+        if: failure()
+        run: |
+          jars=$(find ~/.gradle/caches/fabric-loom .gradle/loom-cache -name '*.jar' 2>/dev/null | grep -i minecraft | tr '\n' ':')
+          echo "$jars" | tr ':' '\n' | head -20
+          for c in \
+            net.minecraft.world.level.Explosion \
+            net.minecraft.world.level.block.state.BlockBehaviour \
+            net.minecraft.world.level.block.state.BlockBehaviour\$Properties \
+            net.minecraft.world.level.block.state.BlockBehaviour\$BlockStateBase \
+            net.minecraft.world.level.block.DoorBlock \
+            net.minecraft.world.level.block.StairBlock \
+            net.minecraft.world.level.block.Block \
+            net.minecraft.world.entity.player.Player \
+            net.minecraft.world.entity.player.Inventory \
+            net.minecraft.world.entity.Entity \
+            net.minecraft.world.level.Level \
+            net.minecraft.server.level.ServerLevel \
+            net.minecraft.world.level.LevelReader \
+            net.minecraft.world.level.CollisionGetter \
+            net.minecraft.world.level.LevelHeightAccessor \
+            net.minecraft.world.level.storage.ValueInput \
+            net.minecraft.world.level.storage.ValueOutput \
+            net.minecraft.nbt.CompoundTag \
+            net.minecraft.world.level.saveddata.SavedDataType \
+            net.minecraft.world.item.Item \
+            net.minecraft.world.item.Item\$Properties \
+            net.minecraft.world.item.ItemStack \
+            net.minecraft.core.Vec3i \
+            net.minecraft.core.BlockPos \
+            net.minecraft.client.Minecraft \
+            net.minecraft.client.gui.Gui \
+            net.minecraft.client.gui.GuiGraphicsExtractor \
+            net.minecraft.client.gui.screens.Screen \
+            net.minecraft.client.gui.components.EditBox \
+            net.minecraft.client.gui.components.Button\$Builder \
+            net.minecraft.gametest.framework.GameTestHelper \
+            net.minecraft.world.level.block.SoundType \
+            net.minecraft.sounds.SoundEvents \
+            ; do
+            echo "=== $c"
+            javap -cp "$jars" -protected "$c" 2>&1 | grep -v "^Compiled from" | head -400
+          done
+
+      - name: List the jar's contents
+        run: unzip -l "build/libs/rust-building-${{ steps.meta.outputs.version }}.jar"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rust-building-jar
+          path: rust-building-mod/build/libs/rust-building-${{ steps.meta.outputs.version }}.jar
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-logs
+          path: |
+            rust-building-mod/build/reports/
+            rust-building-mod/build/run/**/logs/
+            rust-building-mod/build/run/**/crash-reports/
+          if-no-files-found: ignore
+
+  client-test:
+    name: Client game test and screenshots
+    needs: build
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: rust-building-mod
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install a virtual display
+        run: sudo apt-get update -q && sudo apt-get install -yq xvfb
+
+      # Starts the real client, builds a demo base and takes screenshots of it,
+      # the placement preview and two menus (src/gametest/.../RustBuildingClientGameTest).
+      - name: Run the client game test
+        run: >
+          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24"
+          ./gradlew runClientGameTest --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: client-screenshots
+          path: rust-building-mod/build/run/**/screenshots/
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: client-logs
+          path: |
+            rust-building-mod/build/run/**/logs/
+            rust-building-mod/build/run/**/crash-reports/
+          if-no-files-found: ignore
+
+  publish:
+    name: Publish the release
+    needs: [build, client-test]
+    if: inputs.publish || contains(github.event.head_commit.message, '[mod-release]')
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: rust-building-jar
+          path: dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: client-screenshots
+          path: screenshots
+
+      - name: Clear a stale release for this version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="rust-building-v${{ needs.build.outputs.version }}"
+          if gh release view "$tag" --json tagName > /dev/null 2>&1; then
+            echo "removing existing release and tag $tag"
+            gh release delete "$tag" --yes --cleanup-tag
+          fi
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: rust-building-v${{ needs.build.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Rust Building ${{ needs.build.outputs.version }} (Fabric, Minecraft 26.3)
+          body_path: rust-building-mod/RELEASE_NOTES.md
+          files: |
+            dist/rust-building-${{ needs.build.outputs.version }}.jar
+            screenshots/**/*.png

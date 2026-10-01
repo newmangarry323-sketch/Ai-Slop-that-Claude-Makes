@@ -1,0 +1,13 @@
+{
+  "variants": {
+    "kind=slab": {
+      "model": "rustbuilding:block/wood"
+    },
+    "kind=wall": {
+      "model": "rustbuilding:block/wood"
+    },
+    "kind=support": {
+      "model": "rustbuilding:block/wood"
+    }
+  }
+}

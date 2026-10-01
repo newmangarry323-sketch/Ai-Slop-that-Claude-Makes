@@ -1,0 +1,7 @@
+{
+  "parent": "minecraft:block/door_top_left",
+  "textures": {
+    "bottom": "rustbuilding:block/sheet_metal_door_bottom",
+    "top": "rustbuilding:block/sheet_metal_door_top"
+  }
+}

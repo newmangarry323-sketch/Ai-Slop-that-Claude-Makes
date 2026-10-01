@@ -1,0 +1,34 @@
+{
+	"schemaVersion": 1,
+	"id": "rustbuilding",
+	"version": "${version}",
+	"name": "Rust Building",
+	"description": "Building in the style of the survival game Rust: a building plan that places foundations, walls, doorways, windows, floors and stairs on a grid, a hammer that upgrades them twig > wood > stone > sheet metal > armored, a tool cupboard for building privilege, code-locked doors, and raiding with TNT.",
+	"authors": [
+		"newmangarry323-sketch"
+	],
+	"contributors": [
+		"Claude Code (Anthropic)"
+	],
+	"contact": {
+		"sources": "https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/tree/main/rust-building-mod",
+		"issues": "https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/issues"
+	},
+	"license": "Unlicense",
+	"icon": "assets/rustbuilding/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"io.github.newmangarry323sketch.rustbuilding.RustBuilding"
+		],
+		"client": [
+			"io.github.newmangarry323sketch.rustbuilding.client.RustBuildingClient"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~26.3",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
