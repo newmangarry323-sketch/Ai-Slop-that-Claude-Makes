@@ -12,16 +12,22 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 
 import io.github.newmangarry323sketch.rustbuilding.LockScreenMode;
+import io.github.newmangarry323sketch.rustbuilding.building.BuildingTier;
+import io.github.newmangarry323sketch.rustbuilding.building.Edge;
+import io.github.newmangarry323sketch.rustbuilding.building.Grid;
+import io.github.newmangarry323sketch.rustbuilding.building.PieceRef;
 import io.github.newmangarry323sketch.rustbuilding.building.PieceType;
+import io.github.newmangarry323sketch.rustbuilding.building.Structure;
 import io.github.newmangarry323sketch.rustbuilding.client.screen.CodeLockScreen;
 import io.github.newmangarry323sketch.rustbuilding.client.screen.PieceMenuScreen;
 import io.github.newmangarry323sketch.rustbuilding.registry.ModComponents;
 import io.github.newmangarry323sketch.rustbuilding.registry.ModItems;
 
 /**
- * Starts the real client, builds a small base and photographs it, the placement preview and two of the
- * menus. It exercises the client-only code (preview rendering, HUD, screens) that server tests cannot
- * reach; the screenshots land in build/run/clientGameTest/screenshots.
+ * Starts the real client, builds a small base and photographs it, then uses a building plan and a
+ * hammer with real right clicks - placing a wall where the preview showed it, then upgrading it - and
+ * photographs two of the menus. It exercises the client-only code (preview rendering, HUD, screens) and
+ * the client-to-server path that server tests cannot reach.
  */
 @SuppressWarnings("UnstableApiUsage")
 public class RustBuildingClientGameTest implements FabricClientGameTest {
@@ -65,6 +71,28 @@ public class RustBuildingClientGameTest implements FabricClientGameTest {
 			// Long enough for the item name that pops up over the hotbar to fade.
 			context.waitTicks(60);
 			context.takeScreenshot("rustbuilding-preview");
+
+			// Now for real: a right click goes through the client, over the network and into the item on
+			// the server, which places the twig wall the preview showed and takes 9 sticks.
+			Edge previewed = Edge.alongX(Grid.lineOf(1), 4, ground);
+			context.getInput().pressKey(options -> options.keyUse);
+			singleplayer.getServer().waitFor(server -> Structure.hasWall(server.overworld(), previewed), 100);
+			context.waitTicks(5);
+			context.takeScreenshot("rustbuilding-placed");
+
+			// Walk up to the new wall with a hammer and some planks and upgrade it to wood.
+			singleplayer.getServer().runOnServer(server -> {
+				ServerPlayer player = server.getPlayerList().getPlayers().getFirst();
+				player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(ModItems.HAMMER));
+				player.getInventory().add(new ItemStack(Items.OAK_PLANKS, 16));
+			});
+			singleplayer.getServer().runCommand("/tp @a 18.5 " + (ground + 1) + " 7.5 180 0");
+			singleplayer.getConnection().waitForChunksRender();
+			context.waitTicks(5);
+			context.getInput().pressKey(options -> options.keyUse);
+			singleplayer.getServer().waitFor(server -> new PieceRef.Wall(previewed).tier(server.overworld()) == BuildingTier.WOOD, 100);
+			context.waitTicks(5);
+			context.takeScreenshot("rustbuilding-upgraded");
 
 			context.setScreen(() -> new PieceMenuScreen(PieceType.WALL));
 			context.waitTicks(2);
