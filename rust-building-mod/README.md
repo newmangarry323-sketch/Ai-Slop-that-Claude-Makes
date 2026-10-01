@@ -62,6 +62,9 @@ double). A foundation can stand up to 3 blocks above uneven ground; legs fill th
   the current grade's cost).
 - **Hit** (left click): repair it if damaged, otherwise show its health.
 
+<img src="docs/hammer.png" width="49%" alt="Aiming a hammer at a new twig wall, with &quot;Use: upgrade to Wood (9 Planks)&quot; under the crosshair">
+<img src="docs/upgraded.png" width="49%" alt="The same wall after one use: now wood, with 7 of the 16 planks left">
+
 | Grade | Health (as in Rust) | Cost per block | Notes |
 | --- | --- | --- | --- |
 | Twig | 10 | 1 stick | breaks by hand and to any explosion, burns |
