@@ -57,6 +57,10 @@ public class RustBuildingClientGameTest implements FabricClientGameTest {
 
 	@Override
 	public void runTest(ClientGameTestContext context) {
+		// The title screen, with the mod's splash text, once its fade-in is over.
+		context.waitTicks(40);
+		context.takeScreenshot("rustbuilding-title");
+
 		try (TestSingleplayerContext singleplayer = context.worldBuilder().create()) {
 			singleplayer.getConnection().waitForChunksRender();
 
