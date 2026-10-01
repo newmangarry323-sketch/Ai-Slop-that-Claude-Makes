@@ -137,14 +137,15 @@ public class RustBuildingClientGameTest implements FabricClientGameTest {
 			context.takeScreenshot("rustbuilding-cupboard-storage");
 			context.setScreen(() -> null);
 
-			// A spare foundation, and a building plan set to Wall, aimed at the foundation's far edge.
+			// A spare foundation, and a building plan set to Wall, aimed at the foundation's far edge. The
+			// player moves first: they were standing where the foundation goes.
+			singleplayer.getServer().runCommand("/tp @a 18.5 " + ground + " 11.5 180 6");
 			singleplayer.getServer().runOnServer(server -> {
 				TestBuilds.slab(server.overworld(), PieceType.FOUNDATION, 4, 1, ground);
 				ItemStack plan = new ItemStack(ModItems.BUILDING_PLAN);
 				plan.set(ModComponents.SELECTED_PIECE, PieceType.WALL.ordinal());
 				player(server).setItemInHand(InteractionHand.MAIN_HAND, plan);
 			});
-			singleplayer.getServer().runCommand("/tp @a 18.5 " + ground + " 11.5 180 6");
 			singleplayer.getConnection().waitForChunksRender();
 			context.waitTicks(ITEM_NAME_TICKS);
 			context.takeScreenshot("rustbuilding-preview");

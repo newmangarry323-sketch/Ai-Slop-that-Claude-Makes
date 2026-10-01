@@ -327,7 +327,7 @@ public class GarageDoorAndUpkeepGameTest {
 	@GameTest(structure = WIDE)
 	public void cupboardsCountThePiecesInTheirZone(GameTestHelper helper) {
 		ServerLevel level = helper.getLevel();
-		Cell c = Cell.at(helper, 22, 22);
+		Cell c = Cell.at(helper, 20, 20);
 		TestBuilds.slab(level, PieceType.FOUNDATION, c.x(), c.z(), c.y());
 		TestBuilds.slab(level, PieceType.FOUNDATION, c.x() + 1, c.z(), c.y());
 
@@ -366,7 +366,7 @@ public class GarageDoorAndUpkeepGameTest {
 	@GameTest(structure = WIDE)
 	public void piecesWithoutUpkeepDecay(GameTestHelper helper) {
 		ServerLevel level = helper.getLevel();
-		Cell c = Cell.at(helper, 22, 22);
+		Cell c = Cell.at(helper, 20, 20);
 		TestBuilds.slab(level, PieceType.FOUNDATION, c.x(), c.z(), c.y());
 		PieceRef.Slab slab = new PieceRef.Slab(c.x(), c.z(), c.y());
 		long t0 = level.getGameTime();
@@ -392,7 +392,7 @@ public class GarageDoorAndUpkeepGameTest {
 	@GameTest(structure = WIDE)
 	public void paidUpkeepStopsDecay(GameTestHelper helper) {
 		ServerLevel level = helper.getLevel();
-		Cell c = Cell.at(helper, 22, 22);
+		Cell c = Cell.at(helper, 20, 20);
 		TestBuilds.slab(level, PieceType.FOUNDATION, c.x(), c.z(), c.y());
 		PieceRef.Slab slab = new PieceRef.Slab(c.x(), c.z(), c.y());
 		BlockPos cupboardPos = Grid.slabAnchor(c.x(), c.z(), c.y()).above();
