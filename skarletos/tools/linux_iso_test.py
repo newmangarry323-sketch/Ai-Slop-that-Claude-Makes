@@ -17,7 +17,6 @@ commands it runs in Skarlet Terminal write markers like "APT-OK" (through
 Usage: linux_iso_test.py ISO [--qemu Q] [--uefi CODE.fd] [--out DIR] [--install DISK]
 """
 import argparse
-import base64
 import os
 import shutil
 import subprocess
@@ -84,11 +83,6 @@ class Machine:
         img = read_ppm(base + ".ppm")
         if shutil.which("convert"):
             subprocess.run(["convert", base + ".ppm", base + ".png"], check=False)
-            # A small JPEG of the screen in the log, readable where the
-            # build's files cannot be downloaded.
-            thumb = subprocess.run(["convert", base + ".ppm", "-resize", "480x", "-quality", "60",
-                                    "jpg:-"], capture_output=True).stdout
-            print("THUMB %s %s" % (name, base64.b64encode(thumb).decode()), flush=True)
             os.remove(base + ".ppm")
         return img
 
@@ -159,6 +153,8 @@ def main():
     ap.add_argument("--out", default="build/linux-test")
     ap.add_argument("--install", help="a raw disk image to install to, then boot from")
     ap.add_argument("--boot-only", action="store_true", help="stop at the login screen")
+    ap.add_argument("--showcase", action="store_true",
+                    help="also install Firefox with apt and start it from the launcher")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     failures = 0
@@ -205,23 +201,42 @@ def main():
         m.shot("08-launcher-search")
         m.key("esc", gap=1)
 
+        m.key("alt-tab", gap=1) # back to the terminal (xeyes is on top)
+        m.type("pkill xeyes\n")
+        time.sleep(2)
+        if args.showcase:
+            m.type("clear; sudo apt-get install -y firefox-esr && echo FF-INSTALLED | sudo tee /dev/ttyS0\n")
+            check(m.wait_serial("FF-INSTALLED", 900), "sudo apt-get install firefox-esr works")
+            m.shot("09-apt-firefox")
+            # Watch for its window from the terminal, in the background.
+            m.type("(sleep 45; xwininfo -root -tree | grep -qi firefox && "
+                   "echo FF-WINDOW | sudo tee /dev/ttyS0) &\n")
+            time.sleep(6) # the launcher re-reads the installed programs every 2 s
+            m.key("alt-f1", gap=1)
+            m.type("firefox")
+            time.sleep(2)
+            m.shot("10-launcher-firefox")
+            m.key("ret")
+            check(m.wait_serial("FF-WINDOW", 120), "Firefox starts from the launcher")
+            time.sleep(10)
+            m.shot("11-firefox")
+            m.key("alt-tab", gap=2) # back to the terminal
         if args.install:
-            m.key("alt-tab", gap=1) # back to the terminal (xeyes is on top)
             m.type("sudo skarlet-install --disk /dev/vda --password newpass --yes && "
                    "echo INSTALL-OK | sudo tee /dev/ttyS0\n")
             check(m.wait_serial("INSTALL-OK", 1200), "skarlet-install installs to the disk")
-            m.shot("09-installed")
+            m.shot("12-installed")
     finally:
         m.close()
 
     if args.install and failures == 0:
         d = Machine(args, boot_disk=True)
         try:
-            img = wait_screen(d, looks_like_login, "10-disk-login", 600)
+            img = wait_screen(d, looks_like_login, "20-disk-login", 600)
             check(img is not None, "the installed system starts from the disk")
             if img is not None:
                 d.type("newpass\n")
-                check(wait_screen(d, looks_like_desktop, "11-disk-desktop", 60) is not None,
+                check(wait_screen(d, looks_like_desktop, "21-disk-desktop", 60) is not None,
                       "the new password opens the installed desktop")
         finally:
             d.close()

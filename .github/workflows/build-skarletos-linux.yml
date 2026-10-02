@@ -71,12 +71,32 @@ jobs:
         run: |
           truncate -s 8G disk.img
           python3 skarletos/tools/linux_iso_test.py skarletos-linux.iso \
-            --out test-bios --install disk.img
+            --out test-bios --install disk.img --showcase
 
       - name: Test with UEFI - boot to the login screen
         run: |
           python3 skarletos/tools/linux_iso_test.py skarletos-linux.iso \
             --out test-uefi --uefi /usr/share/OVMF/OVMF_CODE_4M.fd --boot-only
+
+      # The screenshots, on their own branch, so they can be looked at (and
+      # copied into the docs) without downloading the whole artifact.
+      - name: Put the screenshots on the skarletos-linux-screens branch
+        if: always() && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/screens
+          cp test-bios/*.png /tmp/screens/ 2>/dev/null || true
+          for f in test-uefi/*.png; do [ -e "$f" ] && cp "$f" "/tmp/screens/uefi-$(basename "$f")"; done
+          cd /tmp/screens
+          [ -n "$(ls)" ] || exit 0
+          git init -q -b skarletos-linux-screens
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -qm "Screenshots of the SkarletOS Debian ISO test, from ${GITHUB_SHA}"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            skarletos-linux-screens
 
       - name: Checksum
         if: always()
