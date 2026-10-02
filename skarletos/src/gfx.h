@@ -13,8 +13,12 @@
 #include "font.h"
 #include "platform.h"
 
+/* The largest screen the back buffer can hold.  The kernel keeps this small
+ * (the buffers live in its fixed memory); the Linux session raises it. */
+#ifndef GFX_MAX_W
 #define GFX_MAX_W 1920
 #define GFX_MAX_H 1200
+#endif
 
 #define RGB(r, g, b) ((uint32_t)(((r) << 16) | ((g) << 8) | (b)))
 #define MAROON RGB(0x80, 0x00, 0x00) /* HTML/CSS "maroon" */

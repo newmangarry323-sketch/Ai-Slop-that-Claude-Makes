@@ -24,7 +24,9 @@
 #define PANEL_Y      (g_h - PANEL_H - PANEL_MARGIN) /* top of the panel */
 #define DESK_BOTTOM  (PANEL_Y - PANEL_MARGIN)       /* windows stay above this */
 #define TITLE_H      36                             /* window title bar */
-#define MAX_WIN   10
+#ifndef MAX_WIN
+#define MAX_WIN   10 /* the Linux session raises this */
+#endif
 #define NUM_DESKS 4
 
 /* ---- application windows ------------------------------------------------ */

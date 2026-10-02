@@ -576,6 +576,7 @@ static void draw_panel(void)
             vis[j] = vis[j - 1];
             vis[j - 1] = tmp;
         }
+    n = MIN(n, (px + pw - 560 - x) / 48); /* leave room for the tray and clock */
     for (int i = 0; i < n; i++) {
         int bx = x + i * 48;
         if (vis[i] == focused)

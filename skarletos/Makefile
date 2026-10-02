@@ -5,6 +5,8 @@
 #                   PCs and VMs such as VMware (downloads the Limine boot loader once)
 #   make run        boot the ISO in QEMU (needs qemu-system-x86_64)
 #   make run-kernel boot the kernel directly with QEMU's -kernel option (no ISO)
+#   make session    build build/skarlet-session, SkarletOS as the desktop of a Linux (X11)
+#                   system (needs libx11-dev and libxext-dev; libpam0g-dev for passwords)
 #   make shell      build build/skarlet-sh, just the shell and file system on the command line
 #   make test       build and run the scripted UI tests on Linux (screenshots in build/screens)
 #   make qemutest   boot the ISO in QEMU, press keys and check the screen
@@ -39,7 +41,7 @@ KOBJS   := $(patsubst %.c,build/kernel/%.o,$(CORE_SRC) kernel/arch_x86_64.c) \
 
 HCFLAGS := -std=gnu11 -O1 -g $(WARN) -fsanitize=address,undefined -fno-omit-frame-pointer
 
-.PHONY: all run run-kernel iso shell test qemutest demo fonts clean
+.PHONY: all run run-kernel iso session shell test qemutest demo fonts clean
 
 all: build/skarletos.bin
 
@@ -89,6 +91,23 @@ run: build/skarletos.iso
 	$(QEMU) -cdrom build/skarletos.iso -m 256M -vga vmware -serial stdio \
 	    $(if $(OVMF),-drive if=pflash$(comma)format=raw$(comma)readonly=on$(comma)file=$(OVMF))
 comma := ,# a literal comma, for use inside $(if ...)
+
+# The Linux session: the same desktop, as the X window manager of a Linux
+# system.  Bigger screens and more windows than the kernel allows.
+LINUX_SRC := $(wildcard linux/*.c)
+LCFLAGS   := -std=gnu11 -O2 -g $(WARN) -DSKARLET_LINUX -DGFX_MAX_W=3840 -DGFX_MAX_H=2160 \
+             -DMAX_WIN=32
+LLIBS     := -lX11 -lXext
+ifneq ($(wildcard /usr/include/security/pam_appl.h),)
+LCFLAGS += -DHAVE_PAM
+LLIBS   += -lpam
+endif
+
+session: build/skarlet-session
+
+build/skarlet-session: $(CORE_SRC) $(LINUX_SRC) linux/*.h src/*.h
+	@mkdir -p build
+	$(CC) $(LCFLAGS) -o $@ $(CORE_SRC) $(LINUX_SRC) $(LLIBS)
 
 shell: build/skarlet-sh
 
