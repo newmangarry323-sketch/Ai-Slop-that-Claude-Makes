@@ -966,11 +966,11 @@ void ws_draw(void)
         return;
     }
     /* Back to front: wallpaper, widgets on the desktop, windows (hidden while
-     * the dashboard shows the widgets), the panel, then floating popups. */
+     * the dashboard shows the widgets), notifications, popups, and the panel
+     * last, so no popup's drop shadow can darken it. */
     draw_wallpaper();
     draw_widgets();
     wm_draw();
-    draw_panel();
     if (g_ws.move_mode)
         gfx_text(SCR_W / 2 - 18, PANEL_Y - 1, " Moving: arrows, Enter to finish ",
                  g_theme->panel_hi);
@@ -981,6 +981,7 @@ void ws_draw(void)
         draw_krunner();
     else if (popup == POP_MENU)
         draw_menu();
+    draw_panel();
 }
 
 static int last_second_of_day = -1;

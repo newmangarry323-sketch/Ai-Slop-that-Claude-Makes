@@ -223,10 +223,10 @@ static int fifteen_solved(struct plasmoid *p)
 
 static void fifteen_draw(struct plasmoid *p, int x, int y, int w, int h, int focused)
 {
-    (void)w;
     (void)h;
     (void)focused;
     const struct theme *t = g_theme;
+    x += (w - 12) / 2; /* centre the 12-column grid in the widget */
     for (int i = 0; i < 16; i++) {
         int v = p->tiles[i];
         char buf[4];

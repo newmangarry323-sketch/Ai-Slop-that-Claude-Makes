@@ -5,19 +5,19 @@ follows the design ideas of the **2012 KDE Plasma 4 workspace** (Plasma Workspac
 4.8 and 4.9). It boots on its own, with no Linux underneath, and draws everything
 in the 80×25 VGA text mode.
 
-```
-░░┌──── Folder View ─────┐░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░┌── Digital Clock ──┐░░
-░░│ ≡ README.txt         │▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░│ ▀█  █▀█ ∙  ▀▀█ █▀█│░░
-░░│ ≡ todo.txt           │░░░▒▒▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░░│  █  █ █ ∙   ▀█ █ █│░░
-░░│                      │░░░░░░░░▒▒▒▒▒▒▒░░░░░░░░░░░░░░░░│ ▀▀▀ ▀▀▀    ▀▀▀ ▀▀▀│░░
-░░└──────────────────────┘░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░└───────────────────┘░░
-░░┌─────── Notes ────────┐▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒▒▒▒▒▒░░░░░░░░░
-░░│Welcome! Type here.   │░░▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒▒▒▒▒▒░░░░
-░░└──────────────────────┘░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
- K │ 1  2  3  4 │ ■ Konsole           ■ Dolphin         │ ♪ i │      10:30 │ ☼
-```
+![Plasmix desktop with Konsole](docs/screenshots/06-konsole.png)
 
-It is a learning project: about 5,700 lines you can read in an afternoon or two.
+| | | |
+|---|---|---|
+| ![Kickoff](docs/screenshots/03-kickoff.png) Kickoff (Alt+F1) | ![KRunner](docs/screenshots/05-krunner-calculator.png) KRunner (Alt+F2) | ![Dolphin](docs/screenshots/08-dolphin.png) Dolphin |
+| ![Add Widgets](docs/screenshots/13-add-widgets.png) Desktop toolbox: Add Widgets | ![Play activity](docs/screenshots/16-activity-play.png) "Play" activity | ![Oxygen theme](docs/screenshots/18-oxygen-desktop.png) Oxygen theme |
+
+These are real screenshots of the kernel running in an x86-64 emulator. The
+**[demo and examples guide](docs/EXAMPLES.md)** has the full 20-screen tour (also
+as an [animated GIF](docs/screenshots/tour.gif)), shell transcripts, KRunner
+examples, and two worked examples of extending the system.
+
+It is a learning project: about 6,400 lines you can read in an afternoon or two.
 It is **not** a real UNIX. There are no processes, no memory protection and no disk.
 See [What it does not do](#what-it-does-not-do).
 
@@ -30,7 +30,7 @@ See [What it does not do](#what-it-does-not-do).
   `> file` / `>> file` redirection, `mkdir`, `rm -r`, `cp`, `mv`, `wc`, `ps`, `kill`,
   `date`, `uname -a`, `history`, `calc` and more (`help` lists them all).
 * **An in-memory file system** with a normal UNIX tree (`/bin`, `/etc`, `/home/user`,
-  `/tmp`…), permission bits and errno-style errors. Every shell command also shows
+  `/tmp`…), permission bits (shown, not enforced) and errno-style errors. Every shell command also shows
   up as a file in `/bin`.
 * **The Plasma 4 desktop model** (next section): plasmoids, containments, a panel,
   activities, Kickoff, KRunner, the desktop toolbox ("cashew"), Air and Oxygen
@@ -65,8 +65,11 @@ make            # builds build/plasmix.bin (57 KB) and build/plasmix.elf
 make run        # boots it in QEMU: qemu-system-x86_64 -kernel build/plasmix.bin
 make iso        # bootable CD image via GRUB (needs grub-mkrescue and xorriso)
 make host       # build/plasmix-tty: the same desktop inside a terminal (80x25 or bigger)
+make shell      # build/plasmix-sh: just the shell and file system, to practise commands
 make test       # 171 scripted UI/shell/file-system checks plus a 40,000-key fuzz run
 make emutest    # boots the real kernel in the Unicorn CPU emulator (pip install unicorn)
+make demo       # records the screenshot tour from the real kernel into build/demo
+                # (needs unicorn, Chromium, ImageMagick and ffmpeg)
 ```
 
 `plasmix.bin` is a Multiboot kernel. It uses the Multiboot "address fields" (flag
@@ -114,8 +117,9 @@ src/shell.c          command parsing, redirection, built-in commands
 src/vfs.c            the in-memory file system and the starting files
 src/gfx.c            back buffer drawing and the Air/Oxygen themes
 src/lib.c            string functions, printf, calculator (no libc in a kernel)
-host/                Linux implementations of platform.h: tests and terminal app
-tools/               emulator boot test
+host/                Linux implementations of platform.h: tests, terminal app, shell
+tools/               emulator boot test, screenshot tour recorder and renderer
+docs/                demo and examples guide, screenshots
 ```
 
 Because only `kernel/arch_x86_64.c` touches hardware, the rest compiles unchanged
