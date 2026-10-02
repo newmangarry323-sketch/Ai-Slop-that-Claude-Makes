@@ -47,12 +47,18 @@ PKGS="linux-image-amd64 live-boot systemd-sysv systemd-resolved libpam-systemd d
       grub-pc-bin grub-efi-amd64-bin grub2-common efibootmgr e2fsprogs dosfstools fdisk
       rsync"
 # The package lists are kept (--skip), so "apt install" works at once.
+# copy-in and sync-in keep each file's owner from the build machine, so the
+# hook after them gives the files back to root (sudo ignores a sudoers.d it
+# doesn't trust, and system files owned by a user are a security hole).
 mmdebstrap --variant=minbase --components=main,contrib,non-free-firmware \
     --skip=cleanup/apt/lists \
     --include="$(echo $PKGS | tr ' ' ',')" \
     --customize-hook='mkdir -p "$1/usr/local/bin"' \
     --customize-hook="copy-in $SRC/build/skarlet-session /usr/local/bin/" \
     --customize-hook="sync-in $HERE/overlay /" \
+    --customize-hook="cd '$HERE/overlay' && find . -print0 | (cd \"\$1\" && xargs -0 chown -h 0:0) &&
+        chown 0:0 \"\$1/usr/local/bin/skarlet-session\" &&
+        chmod 0440 \"\$1/etc/sudoers.d/skarletos\"" \
     --customize-hook="copy-in $HERE/setup-chroot.sh /tmp/" \
     --customize-hook='chroot "$1" sh /tmp/setup-chroot.sh' \
     --customize-hook='rm -f "$1/tmp/setup-chroot.sh"' \

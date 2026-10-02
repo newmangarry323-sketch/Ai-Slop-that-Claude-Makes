@@ -204,6 +204,15 @@ def main():
         m.key("alt-tab", gap=1) # back to the terminal (xeyes is on top)
         m.type("pkill xeyes\n")
         time.sleep(2)
+        # The desktop's Shut down and Restart use "sudo -n systemctl poweroff",
+        # which needs the NOPASSWD rule in /etc/sudoers.d.  With the password
+        # forgotten (-k), "sudo -n -l" only succeeds when sudo loaded that rule
+        # (it ignores the folder if its files aren't owned by root).
+        m.type("sudo -k; sudo -n -l /usr/bin/systemctl poweroff && "
+               "echo SUDO-RULE-OK | sudo tee /dev/ttyS0\n")
+        time.sleep(3)
+        m.type("skarlet\n") # for the tee (a harmless unknown command if the check failed)
+        check(m.wait_serial("SUDO-RULE-OK", 30), "Shut down and Restart need no password")
         if args.showcase:
             m.type("clear; sudo apt-get install -y firefox-esr && echo FF-INSTALLED | sudo tee /dev/ttyS0\n")
             check(m.wait_serial("FF-INSTALLED", 900), "sudo apt-get install firefox-esr works")

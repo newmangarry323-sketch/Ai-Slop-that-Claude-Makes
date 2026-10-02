@@ -54,3 +54,11 @@ The desktop starts on the first console (Ctrl+Alt+F1).
 
 MOTD
 apt-get clean
+
+# sudo must accept its rules (it refuses files not owned by root); stop the
+# build if it would not.
+visudo -c
+if [ "$(stat -c %u /etc /etc/sudoers.d /usr/local/bin | sort -u)" != 0 ]; then
+    echo "setup-chroot: system folders are not owned by root" >&2
+    exit 1
+fi
