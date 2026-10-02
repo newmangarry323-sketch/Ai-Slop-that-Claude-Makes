@@ -48,7 +48,11 @@ void gfx_line16(int x0, int y0, int x1, int y1, int thick16, uint32_t c, int a);
 void gfx_line(int x0, int y0, int x1, int y1, int thick, uint32_t c, int a);
 void gfx_vgradient(int x, int y, int w, int h, uint32_t top, uint32_t bottom, int a);
 
-/* Text.  y is the top of the line; returns the width drawn. */
+/* Text, in UTF-8.  y is the top of the line; returns the width drawn.
+ * Characters a font does not have are drawn as '?'. */
+unsigned gfx_utf8_next(const char **s);
+const struct glyph *gfx_glyph_of(const struct font *f, unsigned codepoint);
+int gfx_glyph(const struct font *f, int x, int y, unsigned codepoint, uint32_t c, int a);
 int gfx_text(const struct font *f, int x, int y, const char *s, uint32_t c, int a);
 int gfx_text_width(const struct font *f, const char *s);
 void gfx_text_center(const struct font *f, int x, int y, int w, const char *s, uint32_t c, int a);

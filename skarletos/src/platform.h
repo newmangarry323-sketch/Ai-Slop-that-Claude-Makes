@@ -65,6 +65,30 @@ struct mouse {
  * wm_open_external() in desktop.h).  The core provides empty defaults, so
  * platforms without such windows need not define them. */
 void plat_window_close(long ext); /* ask the program to close the window */
+/* Programs installed on the system (the Linux session reads them from the
+ * standard .desktop files).  The launcher and runner list them next to the
+ * built-in apps.  The defaults report none. */
+struct installed_app {
+    char name[64];
+    char comment[96];
+    char category[24]; /* one of the launcher's category names, e.g. "Internet" */
+    int icon;          /* IC_* icon */
+    uint32_t color;    /* its tile colour */
+    int favorite;      /* also listed under Favorites (e.g. the web browser) */
+};
+int  plat_app_count(void);
+const struct installed_app *plat_app(int i);
+void plat_app_start(int i);
+
+/* Bars for the System Monitor widget, as percentages.  The default shows
+ * the in-memory file system's use; the Linux session shows CPU, memory and
+ * disk. */
+struct usage_bar {
+    char label[16];
+    int pct;
+};
+int plat_usage(struct usage_bar *out, int max);
+
 /* Check the login password (default: anything is accepted), and the hint
  * shown under the password field. */
 int plat_login(const char *password);

@@ -15,6 +15,8 @@ int main(int argc, char **argv)
     int s = DefaultScreen(dpy);
     Window w = XCreateSimpleWindow(dpy, RootWindow(dpy, s), 50, 50, 400, 300, 0, 0, 0xc0c0c0);
     XStoreName(dpy, w, title);
+    XClassHint ch = { "testapp", "TestApp" };
+    XSetClassHint(dpy, w, &ch);
     Atom del = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(dpy, w, &del, 1);
     XSelectInput(dpy, w, KeyPressMask | ButtonPressMask | ExposureMask);

@@ -73,6 +73,8 @@ struct window {
     int activity;
     char title[48];
     long ext;       /* another program's window (platform handle), or 0 */
+    int ext_icon;   /* for it: IC_* icon and tile colour (0, 0: generic) */
+    uint32_t ext_color;
     int minimized, maximized;
     int rx, ry, rw, rh; /* the rectangle to restore after maximizing */
     union {
@@ -91,8 +93,11 @@ struct app {
     void (*idle)(struct window *w); /* optional, called every tick */
     /* optional: a mouse event in the client area, x/y relative to it */
     void (*mouse)(struct window *w, struct mouse m, int cw, int ch);
+    void (*close)(struct window *w); /* optional: the window is going away */
 };
-extern const struct app *const g_app_impl[APP_SLOTS];
+/* The apps, by id.  A platform may put its own version of an app here at
+ * start-up (the Linux session swaps in a real terminal, for instance). */
+extern const struct app *g_app_impl[APP_SLOTS];
 
 /* wm.c - the window manager */
 struct window *wm_open(int app, const char *arg);

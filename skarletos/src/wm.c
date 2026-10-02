@@ -183,6 +183,8 @@ void wm_remove(struct window *w)
     int i = z_index(w);
     if (i < 0)
         return;
+    if (g_app_impl[w->app]->close)
+        g_app_impl[w->app]->close(w);
     for (; i < nz - 1; i++)
         z_order[i] = z_order[i + 1];
     nz--;
@@ -236,6 +238,9 @@ void wm_toggle_maximize(struct window *w)
 
 void wm_close_all(void)
 {
+    for (int i = 0; i < MAX_WIN; i++)
+        if (windows[i].used && g_app_impl[windows[i].app]->close)
+            g_app_impl[windows[i].app]->close(&windows[i]);
     for (int i = 0; i < MAX_WIN; i++)
         windows[i].used = 0;
     nz = 0;
@@ -297,8 +302,8 @@ static void draw_frame(struct window *w, int focused)
     gfx_rrect_line(w->x, w->y, w->w, w->h, r, oc, oa);
 
     uint32_t title = focused ? t->text : t->text_dim;
-    gfx_icon(g_apps[w->app].icon, w->x + 12, w->y + 9, 18, focused ? t->accent_hi : t->text_dim,
-             255);
+    gfx_icon(w->ext_icon ? w->ext_icon : g_apps[w->app].icon, w->x + 12, w->y + 9, 18,
+             focused ? t->accent_hi : t->text_dim, 255);
     char buf[64];
     if (g_ws.move_mode && focused)
         k_snprintf(buf, sizeof buf, "%s (moving)", w->title);

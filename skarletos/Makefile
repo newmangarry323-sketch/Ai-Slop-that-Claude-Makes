@@ -95,8 +95,14 @@ comma := ,# a literal comma, for use inside $(if ...)
 # The Linux session: the same desktop, as the X window manager of a Linux
 # system.  Bigger screens and more windows than the kernel allows.
 LINUX_SRC := $(wildcard linux/*.c)
+# libvterm (linux/libvterm, MIT licence) is upstream code: built as it is,
+# without our warning flags.
+VTERM_OBJ := $(patsubst linux/libvterm/src/%.c,build/libvterm/%.o,$(wildcard linux/libvterm/src/*.c))
 LCFLAGS   := -std=gnu11 -O2 -g $(WARN) -DSKARLET_LINUX -DGFX_MAX_W=3840 -DGFX_MAX_H=2160 \
-             -DMAX_WIN=32
+             -DMAX_WIN=32 -DVFS_MAX_NODES=4096 -DVFS_NAME_MAX=256 -DVFS_FILE_MAX=262144 \
+             -DVFS_PATH_MAX=512
+# On Linux the real disk replaces the in-memory file system.
+LINUX_CORE := $(filter-out src/vfs.c,$(CORE_SRC))
 LLIBS     := -lX11 -lXext
 ifneq ($(wildcard /usr/include/security/pam_appl.h),)
 LCFLAGS += -DHAVE_PAM
@@ -105,9 +111,14 @@ endif
 
 session: build/skarlet-session
 
-build/skarlet-session: $(CORE_SRC) $(LINUX_SRC) linux/*.h src/*.h
+build/libvterm/%.o: linux/libvterm/src/%.c
+	@mkdir -p build/libvterm
+	$(CC) -std=c99 -O2 -w -Ilinux/libvterm/include -c $< -o $@
+
+build/skarlet-session: $(LINUX_CORE) $(LINUX_SRC) $(VTERM_OBJ) linux/*.h src/*.h
 	@mkdir -p build
-	$(CC) $(LCFLAGS) -o $@ $(CORE_SRC) $(LINUX_SRC) $(LLIBS)
+	$(CC) $(LCFLAGS) -Ilinux/libvterm/include -o $@ $(LINUX_CORE) $(LINUX_SRC) $(VTERM_OBJ) \
+	    $(LLIBS) -lutil
 
 shell: build/skarlet-sh
 

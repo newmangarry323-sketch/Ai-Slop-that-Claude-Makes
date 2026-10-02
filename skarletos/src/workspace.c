@@ -25,6 +25,13 @@ __attribute__((weak)) const char *plat_login_hint(void)
 {
     return "Press Enter to log in (any password)";
 }
+__attribute__((weak)) int plat_app_count(void) { return 0; }
+__attribute__((weak)) const struct installed_app *plat_app(int i)
+{
+    (void)i;
+    return 0;
+}
+__attribute__((weak)) void plat_app_start(int i) { (void)i; }
 
 /* ======================================================================== */
 /* Actions: everything a menu entry, launcher entry or runner result can do  */
@@ -34,7 +41,7 @@ enum {
     ACT_NONE, ACT_LAUNCH, ACT_PLACE, ACT_OPENFILE, ACT_RUN, ACT_CALC, ACT_CATEGORY,
     ACT_LOGOUT, ACT_REBOOT, ACT_POWEROFF,
     ACT_STRIP_WIDGETS, ACT_ADDW, ACT_REMOVEW, ACT_STRIP_ACTIVITIES, ACT_SWITCH_ACT,
-    ACT_NEW_ACT, ACT_TOGGLE_LOCK, ACT_HELP,
+    ACT_NEW_ACT, ACT_TOGGLE_LOCK, ACT_HELP, ACT_INSTALLED,
 };
 
 struct item {
@@ -581,7 +588,9 @@ static void draw_panel(void)
         int bx = x + i * 48;
         if (vis[i] == focused)
             gfx_rrect(bx, py + 4, 44, 40, 10, t->hover, 255);
-        gfx_app_icon(g_apps[vis[i]->app].icon, bx + 8, py + 8, 28, g_apps[vis[i]->app].color);
+        struct window *tw = vis[i];
+        gfx_app_icon(tw->ext_icon ? tw->ext_icon : g_apps[tw->app].icon, bx + 8, py + 8, 28,
+                     tw->ext_color ? tw->ext_color : g_apps[tw->app].color);
         if (vis[i]->minimized)
             gfx_rrect(bx + 8, py + 8, 28, 28, 7, t->panel, 140);
         ws_hit(bx, py + 4, 44, 40, HIT_PANEL_TASK, vis[i]->pid);
@@ -625,17 +634,50 @@ static void draw_panel(void)
 static const char *const launch_tabs[] = { "Favorites", "Applications", "Places",
                                            "Recently Used", "Power" };
 static const int launch_tab_icons[] = { IC_STAR, IC_GRID, IC_HOME, IC_RECENT, IC_POWER };
-static const char *const launch_cats[] = { "System", "Utilities", "Settings" };
+/* Application categories, after the freedesktop.org menu specification
+ * (its "Accessories" is "Utilities" here): System first, where SkarletOS's
+ * own apps are, then the rest alphabetically.  Empty ones are not shown. */
+static const char *const launch_cats[] = {
+    "System", "Development", "Education", "Games", "Graphics", "Internet", "Multimedia",
+    "Office", "Science", "Settings", "Utilities",
+};
+
+static int category_count(int c)
+{
+    int count = 0;
+    for (int a = 0; a < APP_COUNT; a++)
+        count += k_strcmp(g_apps[a].category, launch_cats[c]) == 0;
+    for (int i = 0; i < plat_app_count(); i++)
+        count += k_strcmp(plat_app(i)->category, launch_cats[c]) == 0;
+    return count;
+}
 static const struct { const char *name, *path; int icon; } launch_places[] = {
     { "Home", "/home/user", IC_HOME }, { "Desktop", "/home/user/Desktop", IC_DESKTOP },
     { "Documents", "/home/user/Documents", IC_FILE }, { "Music", "/home/user/Music", IC_MUSIC },
     { "Root", "/", IC_DRIVE }, { "Temp", "/tmp", IC_RECENT },
 };
 
+/* Built-in apps have ids below INSTALLED; installed programs are
+ * INSTALLED + their index in plat_app(). */
+#define INSTALLED 1000
+
 static void add_app_item(int app)
 {
+    if (app >= INSTALLED) {
+        const struct installed_app *ia = plat_app(app - INSTALLED);
+        if (ia)
+            set_icon(add_item(ia->name, ia->comment, ACT_INSTALLED, app - INSTALLED, 0), ia->icon,
+                     ia->color);
+        return;
+    }
     set_icon(add_item(g_apps[app].name, g_apps[app].generic, ACT_LAUNCH, app, 0), g_apps[app].icon,
              g_apps[app].color);
+}
+
+static int installed_matches(const struct installed_app *ia, const char *q)
+{
+    return k_strcasestr(ia->name, q) || k_strcasestr(ia->comment, q) ||
+           k_strcasestr(ia->category, q);
 }
 
 static void add_place_item(int i)
@@ -675,6 +717,9 @@ static void launcher_build(void)
             if (k_strcasestr(g_apps[a].name, query) || k_strcasestr(g_apps[a].generic, query) ||
                 k_strcasestr(g_apps[a].id, query))
                 add_app_item(a);
+        for (int i = 0; i < plat_app_count(); i++)
+            if (installed_matches(plat_app(i), query))
+                add_app_item(INSTALLED + i);
         end_section(h);
         h = nitems;
         add_header("Places");
@@ -687,6 +732,9 @@ static void launcher_build(void)
         add_leave_items(query);
         end_section(h);
     } else if (launch_tab == 0) {
+        for (int i = 0; i < plat_app_count(); i++)
+            if (plat_app(i)->favorite)
+                add_app_item(INSTALLED + i);
         add_app_item(APP_TERMINAL);
         add_app_item(APP_FILES);
         add_app_item(APP_WRITE);
@@ -695,9 +743,9 @@ static void launcher_build(void)
         if (launch_cat < 0) {
             /* Top level: the categories, which open like folders. */
             for (int c = 0; c < ARRAY_LEN(launch_cats); c++) {
-                int count = 0;
-                for (int a = 0; a < APP_COUNT; a++)
-                    count += k_strcmp(g_apps[a].category, launch_cats[c]) == 0;
+                int count = category_count(c);
+                if (count == 0)
+                    continue;
                 char hint[32];
                 k_snprintf(hint, sizeof hint, "%d application%s", count, count == 1 ? "" : "s");
                 set_icon(add_item(launch_cats[c], hint, ACT_CATEGORY, c, 0), IC_GRID,
@@ -707,6 +755,9 @@ static void launcher_build(void)
             for (int a = 0; a < APP_COUNT; a++)
                 if (k_strcmp(g_apps[a].category, launch_cats[launch_cat]) == 0)
                     add_app_item(a);
+            for (int i = 0; i < plat_app_count(); i++)
+                if (k_strcmp(plat_app(i)->category, launch_cats[launch_cat]) == 0)
+                    add_app_item(INSTALLED + i);
         }
     } else if (launch_tab == 2) {
         add_header("Applications");
@@ -857,6 +908,10 @@ static void runner_build(void)
             k_strcasestr(g_apps[a].generic, query))
             set_icon(add_item(g_apps[a].name, "Launch application", ACT_LAUNCH, a, 0),
                      g_apps[a].icon, g_apps[a].color);
+    for (int i = 0; i < plat_app_count() && nitems < MAX_ITEMS - 3; i++)
+        if (installed_matches(plat_app(i), query))
+            set_icon(add_item(plat_app(i)->name, "Launch application", ACT_INSTALLED, i, 0),
+                     plat_app(i)->icon, plat_app(i)->color);
     /* Places runner: anything that looks like a path. */
     int node = vfs_lookup(VFS_ROOT, query);
     if ((query[0] == '/' || query[0] == '~') && node >= 0) {
@@ -1135,6 +1190,10 @@ static void run_item(struct item *it)
     case ACT_LAUNCH:
         remember_recent(arg);
         svc_launch(arg, 0);
+        break;
+    case ACT_INSTALLED:
+        remember_recent(INSTALLED + arg);
+        plat_app_start(arg);
         break;
     case ACT_PLACE: svc_launch(APP_FILES, str); break;
     case ACT_OPENFILE: svc_launch(APP_WRITE, str); break;

@@ -358,10 +358,17 @@ static void files_draw(struct window *w, int x, int y, int cw, int ch, int focus
                  255);
         gfx_text_fit(&font_ui, lx + 50, ry + 6, lw - 170, vfs_name(node), tc, 255);
         char size[16];
+        int bytes = vfs_size(node);
         if (dir)
             k_strlcpy(size, "Folder", sizeof size);
+        else if (bytes < 1024)
+            k_snprintf(size, sizeof size, "%d B", bytes);
+        else if (bytes < 1024 * 1024)
+            k_snprintf(size, sizeof size, "%d KiB", bytes / 1024);
+        else if (bytes < 1024 * 1024 * 1024)
+            k_snprintf(size, sizeof size, "%d MiB", bytes / (1024 * 1024));
         else
-            k_snprintf(size, sizeof size, "%d B", vfs_size(node));
+            k_snprintf(size, sizeof size, "%d GiB", bytes / (1024 * 1024 * 1024));
         gfx_text_right(&font_ui, lx + lw - 26, ry + 6, size,
                        selected && d->pane == 1 && focused ? WHITE : t->text_dim, 255);
     }
@@ -902,7 +909,7 @@ static const struct app external_app = {
     .w = 640, .h = 480, .init = ext_init, .draw = ext_draw, .key = ext_key,
 };
 
-const struct app *const g_app_impl[APP_SLOTS] = {
+const struct app *g_app_impl[APP_SLOTS] = {
     [APP_TERMINAL] = &terminal_app,
     [APP_FILES] = &files_app,
     [APP_WRITE] = &write_app,

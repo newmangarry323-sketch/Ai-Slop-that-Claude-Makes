@@ -448,6 +448,15 @@ static void manage(Window c)
         XMapWindow(dpy, c);
         return;
     }
+    /* The icon and colour of the program it belongs to, by its WM_CLASS. */
+    XClassHint ch_hint = { 0, 0 };
+    if (XGetClassHint(dpy, c, &ch_hint)) {
+        desktop_files_match(ch_hint.res_name, ch_hint.res_class, &w->ext_icon, &w->ext_color);
+        if (ch_hint.res_name)
+            XFree(ch_hint.res_name);
+        if (ch_hint.res_class)
+            XFree(ch_hint.res_class);
+    }
     struct surface *s = new_surface(w->pid, c);
     if (!s) {
         wm_remove(w);
@@ -1151,6 +1160,7 @@ int main(int argc, char **argv)
 
     linux_init();
     ws_init(); /* sizes the back buffer from plat_display_size() */
+    config_load();
     image_init();
     prev = calloc((size_t)g_w * g_h, 4);
     for (int i = 0; i < g_w * g_h; i++)
@@ -1173,6 +1183,7 @@ int main(int argc, char **argv)
             XNextEvent(dpy, &e);
             handle_event(&e);
         }
+        linux_tick();
         ws_tick();
         XFlush(dpy);
         fd_set fds;

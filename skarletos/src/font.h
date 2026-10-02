@@ -14,6 +14,10 @@ struct font {
     int ascent, descent, line; /* pixels above/below the baseline; line height */
     const struct glyph *glyphs; /* characters 32..126 */
     const unsigned char *bits;  /* coverage bytes, 0..255 */
+    /* Characters beyond ASCII (Unicode code points, sorted), if any. */
+    int nextra;
+    const unsigned short *extra_cp;
+    const struct glyph *extra;
 };
 
 extern const struct font font_ui, font_ui_bold, font_small, font_title, font_mono, font_big,

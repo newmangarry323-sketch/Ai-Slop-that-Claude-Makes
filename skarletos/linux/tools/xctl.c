@@ -82,6 +82,10 @@ static void type_text(const char *s)
         if (*s == ' ') ks = XK_space;
         else if (*s == '\n') ks = XK_Return;
         KeyCode kc = XKeysymToKeycode(dpy, ks);
+        if (!kc) {
+            fprintf(stderr, "xctl: no key for '%c' in this keymap\n", *s);
+            continue;
+        }
         int shift = 0;
         if (kc && XkbKeycodeToKeysym(dpy, kc, 0, 0) != ks)
             shift = 1; /* e.g. capitals and '*' need Shift */
