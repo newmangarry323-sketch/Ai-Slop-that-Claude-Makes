@@ -137,6 +137,8 @@ and the serial port:
   logs in;
 * in Skarlet Terminal, `sudo apt-get install x11-apps` downloads from
   Debian's servers and **xeyes** opens a window;
+* the desktop's Shut down and Restart are allowed without a password
+  (sudo's rule for them is in effect);
 * `sudo apt-get install firefox-esr`, then Firefox is found in the launcher
   and **starts from it**;
 * `skarlet-install` installs to an empty virtual disk, the machine **starts

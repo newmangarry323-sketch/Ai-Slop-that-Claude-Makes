@@ -73,6 +73,8 @@ repository's Actions tab):
   wrong password is refused and `skarlet` logs in;
 * in Skarlet Terminal, `sudo apt-get install x11-apps` downloads and installs
   from Debian's servers, and **xeyes** opens a window on the desktop;
+* the desktop's Shut down and Restart are allowed without a password
+  (sudo's rule for them is in effect);
 * `sudo apt-get install firefox-esr` installs Firefox, which then appears in
   the launcher and **starts from it**;
 * `skarlet-install` installs the system to an empty virtual disk; the
