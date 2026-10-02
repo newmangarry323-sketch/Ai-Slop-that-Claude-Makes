@@ -1,6 +1,6 @@
 /* desktop.h - shared state of the Plasma-style workspace.
  *
- * The pieces map onto the Plasma 4 vocabulary:
+ * The pieces map onto the Plasma vocabulary:
  *   plasmoid     - a widget (clock, notes, folder view...). Everything you see
  *                  on the desktop and in the panel is one.
  *   containment  - something that holds plasmoids: the desktop and the panel.
@@ -11,23 +11,26 @@
 #ifndef SKARLET_DESKTOP_H
 #define SKARLET_DESKTOP_H
 
+#include "gfx.h"
 #include "platform.h"
 #include "services.h"
 #include "shell.h"
 #include "vfs.h"
 
-/* The panel is two rows high: a soft top rim (half blocks) and a row of
- * applets, which reads as the taller panel of a Plasma 4 desktop. */
-#define PANEL_Y   (SCR_H - 1) /* the panel's applets */
-#define PANEL_RIM (SCR_H - 2) /* the panel's top edge */
-#define DESK_H    (SCR_H - 2) /* rows available to the desktop and windows */
+/* Layout, in pixels.  The panel floats a little above the bottom edge, as
+ * in current KDE Plasma; windows and widgets use the space above it. */
+#define PANEL_H      48
+#define PANEL_MARGIN 8
+#define PANEL_Y      (g_h - PANEL_H - PANEL_MARGIN) /* top of the panel */
+#define DESK_BOTTOM  (PANEL_Y - PANEL_MARGIN)       /* windows stay above this */
+#define TITLE_H      36                             /* window title bar */
 #define MAX_WIN   10
 #define NUM_DESKS 4
 
 /* ---- application windows ------------------------------------------------ */
 
-#define TERM_LINES 150
-#define TERM_COLS  78
+#define TERM_LINES 200
+#define TERM_COLS  120
 
 struct term_state {
     struct shell sh;
@@ -39,6 +42,7 @@ struct term_state {
     int len;
     int hist_pos;
     int scroll;          /* rows scrolled back with Shift+PgUp */
+    int rows;            /* rows that fit in the window (set when drawn) */
     char pending[SH_LINE]; /* command to run once the window exists */
 };
 
@@ -62,7 +66,7 @@ struct window {
     int used;
     int pid;
     int app;
-    int x, y, w, h; /* outer rectangle including the frame */
+    int x, y, w, h; /* outer rectangle including the title bar, in pixels */
     int desk;       /* virtual desktop 0..3 */
     int activity;
     char title[48];
@@ -75,7 +79,7 @@ struct window {
 };
 
 struct app {
-    int w, h; /* default outer size */
+    int w, h; /* default outer size in pixels */
     void (*init)(struct window *w, const char *arg);
     void (*draw)(struct window *w, int x, int y, int cw, int ch, int focused);
     void (*key)(struct window *w, struct key k);
@@ -117,9 +121,10 @@ struct plasmoid_type {
     const char *id;
     const char *name;
     const char *desc;
-    int icon;   /* glyph shown in the Add Widgets explorer */
-    int header; /* 1: the title is drawn inside the widget, under a line */
-    int w, h;
+    int icon;   /* IC_* icon for the Add Widgets tiles and the header */
+    int header; /* 1: the widget shows its icon and title at the top */
+    int w, h;   /* default size in pixels */
+    uint32_t card; /* card colour, or 0 for the theme's */
     void (*init)(struct plasmoid *p);
     void (*draw)(struct plasmoid *p, int x, int y, int w, int h, int focused);
     int  (*key)(struct plasmoid *p, struct key k); /* 1 if handled */

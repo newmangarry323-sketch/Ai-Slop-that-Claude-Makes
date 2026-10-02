@@ -1,10 +1,10 @@
 /* test_ui.c - scripted tests for the whole desktop, run on Linux.
  *
  * This file implements platform.h with a fake keyboard (a queue we fill
- * from the test), a fake clock and a "screen" we can search for text.  The
- * desktop code under test is exactly the code the kernel runs.  Screens are
- * also saved to build/screens/ as plain text and as ANSI colour files
- * (view those with: cat build/screens/desktop.ans).
+ * from the test), a fake clock and a 1918 x 1075 screen.  "What text is on
+ * the screen" comes from the drawing library's text log.  The desktop code
+ * under test is exactly the code the kernel runs.  Screens are also saved to
+ * build/screens/ as PPM images (convert them with any image tool).
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,7 +14,9 @@
 #include "../src/desktop.h"
 #include "../src/gfx.h"
 #include "../src/lib.h"
-#include "cp437.h"
+
+#define TEST_W 1918
+#define TEST_H 1075
 
 /* ---- fake platform ------------------------------------------------------ */
 
@@ -32,7 +34,18 @@ int plat_key_poll(struct key *k)
     return 1;
 }
 
-void plat_present(const uint16_t *cells) { (void)cells; frames++; }
+void plat_display_size(int *w, int *h)
+{
+    *w = TEST_W;
+    *h = TEST_H;
+}
+void plat_present(const uint32_t *px, int w, int h)
+{
+    (void)px;
+    (void)w;
+    (void)h;
+    frames++;
+}
 void plat_time(struct datetime *t) { *t = fake_now; }
 uint32_t plat_mem_kib(void) { return 131072; }
 void plat_reboot(void) { reboots++; }
@@ -80,54 +93,41 @@ static void advance(int seconds)
     }
 }
 
-static int screen_has(const char *s)
-{
-    char row[SCR_W + 1];
-    for (int y = 0; y < SCR_H; y++) {
-        gfx_row_text(y, row);
-        if (strstr(row, s))
-            return 1;
-    }
-    return 0;
-}
+static int screen_has(const char *s) { return gfx_text_visible(s); }
 
-static int row_has(int y, const char *s)
-{
-    char row[SCR_W + 1];
-    gfx_row_text(y, row);
-    return strstr(row, s) != NULL;
-}
+/* Text drawn on the panel (the bottom of the screen). */
+static int panel_has(const char *s) { return gfx_text_visible_in(PANEL_Y, g_h, s); }
 
-static void dump(FILE *f, int color)
-{
-    for (int y = 0; y < SCR_H; y++) {
-        for (int x = 0; x < SCR_W; x++) {
-            uint16_t c = g_screen[y * SCR_W + x];
-            if (color)
-                ansi_attr(f, (uint8_t)(c >> 8));
-            cp437_put(f, (uint8_t)c);
-        }
-        fputs(color ? "\033[0m\n" : "\n", f);
-    }
-}
+static void dump(FILE *f) { fputs(gfx_textlog(), f); }
 
+/* Save the current frame as a PPM image (a simple uncompressed format). */
 static void save(const char *name)
 {
     char path[128];
     mkdir("build", 0755);
     mkdir("build/screens", 0755);
-    snprintf(path, sizeof path, "build/screens/%s.txt", name);
-    FILE *f = fopen(path, "w");
-    if (f) {
-        dump(f, 0);
-        fclose(f);
+    snprintf(path, sizeof path, "build/screens/%s.ppm", name);
+    FILE *f = fopen(path, "wb");
+    if (!f)
+        return;
+    fprintf(f, "P6\n%d %d\n255\n", g_w, g_h);
+    for (int i = 0; i < g_w * g_h; i++) {
+        unsigned char rgb[3] = { (unsigned char)(g_px[i] >> 16), (unsigned char)(g_px[i] >> 8),
+                                 (unsigned char)g_px[i] };
+        fwrite(rgb, 1, 3, f);
     }
-    snprintf(path, sizeof path, "build/screens/%s.ans", name);
-    f = fopen(path, "w");
-    if (f) {
-        dump(f, 1);
-        fclose(f);
+    fclose(f);
+}
+
+/* Is the colour c close to want (each channel within tol)? */
+static int near(uint32_t c, uint32_t want, int tol)
+{
+    for (int sh = 0; sh <= 16; sh += 8) {
+        int d = (int)((c >> sh) & 255) - (int)((want >> sh) & 255);
+        if (d < -tol || d > tol)
+            return 0;
     }
+    return 1;
 }
 
 #define CHECK(cond)                                                              \
@@ -136,7 +136,7 @@ static void save(const char *name)
         if (!(cond)) {                                                           \
             failures++;                                                          \
             fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond);     \
-            dump(stderr, 0);                                                     \
+            dump(stderr);                                                        \
         }                                                                        \
     } while (0)
 
@@ -318,21 +318,23 @@ static void test_login_and_desktop(void)
 {
     boot();
     CHECK(screen_has("Welcome to SkarletOS"));
+    CHECK(screen_has("Password"));
     type("secret");
-    CHECK(screen_has("******"));
+    CHECK(!screen_has("Password")); /* the placeholder gives way to dots */
     save("login");
     press(K_ENTER);
     CHECK(g_ws.phase == PHASE_DESKTOP);
-    CHECK(row_has(PANEL_Y, " S "));
-    /* The default look: Skarlet Light with a maroon accent. */
-    CHECK(strcmp(g_theme->name, "Skarlet Light") == 0);
+    /* The screen is the requested 1918 x 1075. */
+    CHECK(g_w == 1918 && g_h == 1075);
+    /* The default look: Skarlet Dark with a maroon accent. */
+    CHECK(strcmp(g_theme->name, "Skarlet Dark") == 0);
     CHECK(strcmp(g_accents[g_accent_index].name, "Maroon") == 0);
-    CHECK(g_theme->sel == ATTR(WHITE, MAROON) && g_theme->menu_hi == ATTR(WHITE, MAROON));
-    CHECK(g_theme->win_border == ATTR(MAROON, LGRAY)); /* the active window "glow" */
-    CHECK(gfx_attr_at(0, PANEL_Y) == ATTR(WHITE, MAROON)); /* the launcher button */
-    /* The panel's rim: half blocks in the panel colour along the row above. */
-    CHECK((g_screen[PANEL_RIM * SCR_W + 40] & 0xFF) == CH_LOWER);
-    CHECK(row_has(PANEL_Y, "10:30"));
+    CHECK(g_theme->accent == MAROON && MAROON == 0x800000);
+    /* The launcher button on the panel is a maroon circle. */
+    CHECK(gfx_get(PANEL_MARGIN + 8 + 20, PANEL_Y + PANEL_H / 2 + 12) == MAROON);
+    /* The panel floats: wallpaper shows below it and at its sides. */
+    CHECK(PANEL_Y + PANEL_H < g_h);
+    CHECK(panel_has("10:30") && panel_has("Wed 1 Aug"));
     CHECK(screen_has("Folder View"));
     CHECK(screen_has("README.txt"));
     CHECK(screen_has("Welcome! Type here.")); /* the Notes widget */
@@ -345,16 +347,16 @@ static void test_login_and_desktop(void)
     CHECK(!screen_has("Alt+F1 opens the launcher"));
     CHECK(g_ws.uptime == 6);
     advance(60);
-    CHECK(row_has(PANEL_Y, "10:31"));
+    CHECK(panel_has("10:31"));
 }
 
 static void test_launcher_terminal(void)
 {
     login();
     alt(K_F1);
-    CHECK(screen_has("user on skarlet"));
+    CHECK(screen_has("user") && screen_has("on skarlet"));
     CHECK(screen_has("Search:"));
-    CHECK(screen_has("Favorites") && screen_has("Recently Used") && screen_has("Leave"));
+    CHECK(screen_has("Favorites") && screen_has("Recently Used") && screen_has("Power"));
     CHECK(screen_has("Skarlet Terminal") && screen_has("Terminal"));
     save("launcher");
     press(K_RIGHT); /* Applications tab: categories first */
@@ -394,9 +396,9 @@ static void test_launcher_terminal(void)
     for (int i = 0; i < 30; i++)
         cmd("echo line");
     push(K_PGUP, MOD_SHIFT);
-    CHECK(screen_has("[scrollback]"));
+    CHECK(screen_has("scrollback"));
     press('x');
-    CHECK(!screen_has("[scrollback]"));
+    CHECK(!screen_has("scrollback"));
     ctrl('c');
     cmd("clear");
     CHECK(!screen_has("echo line"));
@@ -417,14 +419,14 @@ static void test_runner(void)
 {
     login();
     alt(K_F2);
-    CHECK(screen_has("Skarlet Runner"));
+    CHECK(screen_has("Apps, places like /etc")); /* the runner's hint */
     type("6*7");
     CHECK(screen_has("= 42"));
     save("runner");
     press(K_ENTER); /* puts the result back in the box */
-    CHECK(screen_has("42_"));
+    CHECK(screen_has("Run \"42\""));
     press(K_ESC);
-    CHECK(!screen_has(" Skarlet Runner ")); /* the popup title */
+    CHECK(!screen_has("Run \"42\""));
 
     alt(K_F2);
     type("/etc");
@@ -432,7 +434,7 @@ static void test_runner(void)
     press(K_ENTER);
     CHECK(wm_focused() && wm_focused()->app == APP_FILES);
     CHECK(screen_has("passwd"));
-    CHECK(screen_has("Places"));
+    CHECK(screen_has("PLACES") && screen_has("Documents"));
     save("skfiles");
 
     /* Unknown text becomes a command run in Skarlet Terminal. */
@@ -463,7 +465,6 @@ static void test_windows_and_desktops(void)
     CHECK(wm_focused()->app == APP_TERMINAL);
     alt(K_TAB);
     CHECK(wm_focused()->app == APP_FILES);
-    CHECK(row_has(PANEL_Y, "user - Skarlet"));
 
     /* Alt+F7 moves the window with the arrow keys. */
     int x0 = wm_focused()->x, y0 = wm_focused()->y;
@@ -472,7 +473,7 @@ static void test_windows_and_desktops(void)
     press(K_RIGHT);
     press(K_DOWN);
     press(K_ENTER);
-    CHECK(wm_focused()->x == x0 + 2 && wm_focused()->y == y0 + 1);
+    CHECK(wm_focused()->x == x0 + 24 && wm_focused()->y == y0 + 24);
     CHECK(!g_ws.move_mode);
 
     /* Virtual desktops: desktop 2 starts empty. */
@@ -533,7 +534,7 @@ static void test_toolbox_activities_widgets(void)
 {
     login();
     alt(K_F12);
-    CHECK(screen_has("Desktop Toolbox") && screen_has("Desktop Settings"));
+    CHECK(screen_has("Add Widgets...") && screen_has("Desktop Settings"));
     save("toolbox");
     press(K_ENTER); /* Add Widgets...: a strip of tiles above the panel */
     CHECK(screen_has("Add Widgets") && screen_has("Fifteen") && screen_has("Puzzle"));
@@ -561,10 +562,10 @@ static void test_toolbox_activities_widgets(void)
     CHECK(p->text[strlen(p->text) - 1] == '!');
     int x0 = p->x;
     alt(K_LEFT);
-    CHECK(p->x == x0 - 2);
+    CHECK(p->x == x0 - 16);
 
     /* Unlocked and focused: the applet handle shows beside it. */
-    CHECK((g_screen[(p->y + 1) * SCR_W + p->x + p->w] & 0xFF) == 'x');
+    CHECK(near(gfx_get(p->x + p->w + 10 + 20, p->y + 40), g_theme->card, 40));
 
     /* Remove it again from the toolbox. */
     alt(K_F12);
@@ -660,29 +661,29 @@ static void test_settings_theme(void)
     login();
     svc_launch(APP_SETTINGS, 0);
     ws_tick();
-    CHECK(screen_has("Desktop theme"));
+    CHECK(screen_has("Theme") && screen_has("Skarlet Dark"));
     CHECK(screen_has("Accent colour") && screen_has("Maroon"));
     press(K_ENTER);
-    CHECK(strcmp(g_theme->name, "Skarlet Dark") == 0);
-    CHECK(g_theme->sel == ATTR(WHITE, MAROON)); /* the accent survives */
-    CHECK(g_theme->title_on == ATTR(WHITE, DGRAY)); /* Oxygen-style: window-coloured */
+    CHECK(strcmp(g_theme->name, "Skarlet Light") == 0);
+    CHECK(g_theme->accent == MAROON); /* the accent survives */
+    CHECK(!g_theme->dark);
     press(K_DOWN);
     press(K_RIGHT); /* accent: Maroon -> Blue */
     CHECK(strcmp(g_accents[g_accent_index].name, "Blue") == 0);
-    CHECK(g_theme->sel == ATTR(WHITE, BLUE));
+    CHECK(g_theme->accent != MAROON);
     press(K_LEFT);  /* and back to Maroon */
-    CHECK(g_theme->sel == ATTR(WHITE, MAROON));
+    CHECK(g_theme->accent == MAROON);
     press(K_DOWN);
     press(K_RIGHT); /* wallpaper */
     press(K_DOWN);
     press(K_ENTER); /* 12-hour clock */
-    CHECK(row_has(PANEL_Y, "10:30 AM"));
-    save("settings-dark");
+    CHECK(panel_has("10:30 AM"));
+    save("settings-light");
     alt(K_F4);
-    save("desktop-dark");
+    save("desktop-light");
     /* Logging in again after a reboot gives the defaults back. */
     boot();
-    CHECK(strcmp(g_theme->name, "Skarlet Light") == 0 && g_accent_index == 0);
+    CHECK(strcmp(g_theme->name, "Skarlet Dark") == 0 && g_accent_index == 0);
 }
 
 static void test_leave(void)
@@ -734,7 +735,12 @@ static void test_fuzz(void)
         int mods = (r >> 20) & 7;
         if (mods & MOD_ALT && code == K_F4 && (r >> 24) % 4)
             mods &= ~MOD_ALT; /* keep some windows alive */
-        push(code, mods);
+        /* Queue keys in small bursts: each burst is one redraw, as when a
+         * fast typist's keys arrive between two frames. */
+        queue[qtail] = (struct key){ code, mods };
+        qtail = (qtail + 1) % 64;
+        if (i % 8 == 7)
+            ws_tick();
         if (i % 97 == 0)
             advance(1);
     }

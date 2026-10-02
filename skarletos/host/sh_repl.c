@@ -16,7 +16,17 @@
 #include "../src/desktop.h"
 
 int plat_key_poll(struct key *k) { (void)k; return 0; }
-void plat_present(const uint16_t *cells) { (void)cells; }
+void plat_display_size(int *w, int *h)
+{
+    *w = 1024;
+    *h = 768;
+}
+void plat_present(const uint32_t *px, int w, int h)
+{
+    (void)px;
+    (void)w;
+    (void)h;
+}
 uint32_t plat_mem_kib(void) { return 0; }
 void plat_reboot(void) { puts("(the system would reboot now)"); }
 void plat_poweroff(void) { puts("(the system would power off now)"); }

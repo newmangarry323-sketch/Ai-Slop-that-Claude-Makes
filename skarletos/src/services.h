@@ -16,7 +16,8 @@ struct app_info {
     const char *name;    /* "Skarlet Terminal" */
     const char *generic; /* "Terminal" */
     const char *category;
-    int icon;            /* code page 437 glyph used in the panel and launcher */
+    int icon;            /* IC_* icon used in the panel and launcher */
+    uint32_t color;      /* its app-icon tile colour */
 };
 extern const struct app_info g_apps[APP_COUNT];
 

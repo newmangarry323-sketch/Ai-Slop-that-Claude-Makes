@@ -30,12 +30,15 @@ Everything is in [`rust-building-mod/`](rust-building-mod/), including the ready
 
 ## SkarletOS (x86-64 hobby OS)
 
-A small UNIX-like operating system in C for 64-bit PCs, with a text-mode desktop
-modelled on KDE Plasma 4.8 (2012): plasmoids, containments, activities, a
-Kickoff-style launcher, a KRunner-style runner and the desktop toolbox, in a
-maroon accent colour. It has a shell, an in-memory file system, and Skarlet
-Terminal, Files, Write, Settings and Monitor. Boot it with `make run` (QEMU), or
-try it in a terminal with `make host`.
+A small UNIX-like operating system in C for 64-bit PCs, with a modern desktop
+inspired by KDE Plasma: a floating panel, rounded translucent windows and
+popups, a launcher, a runner, widgets and activities, dark and light themes, and
+a maroon accent colour. It draws at 1918 × 1075 and has a shell, an in-memory
+file system, and Skarlet Terminal, Files, Write, Settings and Monitor.
+
+**Try it in VMware:** boot [`skarletos/release/skarletos.iso`](skarletos/release/skarletos.iso)
+in a VM set to "Other 64-bit" (BIOS or UEFI; leave Secure Boot off). The
+[SkarletOS README](skarletos/README.md#run-it-in-vmware) has the steps.
 
 Everything is in [`skarletos/`](skarletos/), with screenshots, a guide to how it
 works, and exercises.

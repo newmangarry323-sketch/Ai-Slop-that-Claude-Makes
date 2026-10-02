@@ -315,14 +315,14 @@ void vfs_init(void)
            "user:x:1000:1000:SkarletOS User:/home/user:/bin/sh\n", 0644);
     mkfile("/etc/motd",
            "Welcome to SkarletOS, a toy UNIX-like system with a desktop\n"
-           "modelled on the 2012 KDE Plasma 4 workspace.\n"
+           "inspired by KDE Plasma.\n"
            "Type 'help' to see the commands.\n", 0644);
     mkfile("/home/user/Desktop/README.txt",
            "SkarletOS desktop quick start\n"
            "-----------------------------\n"
-           "Alt+F1   application launcher (Skarlet Launcher)\n"
+           "Alt+F1   application launcher (or tap the Meta/Windows key)\n"
            "Alt+F2   Skarlet Runner: run commands, do maths\n"
-           "Alt+F12  desktop toolbox: widgets and activities\n"
+           "Alt+F12  desktop menu: widgets and activities\n"
            "Alt+Tab  next window, Alt+F4 close window\n"
            "Ctrl+F1..F4  switch virtual desktop\n"
            "Tab      on the desktop: focus the next widget\n"
@@ -332,7 +332,7 @@ void vfs_init(void)
            "- add a new shell command in src/shell.c\n"
            "- write a new plasmoid in src/plasmoids.c\n", 0644);
     mkfile("/home/user/Documents/plasma-notes.txt",
-           "Plasma 4 ideas this desktop copies:\n"
+           "KDE Plasma ideas this desktop copies:\n"
            "* everything on the desktop and panel is a widget (plasmoid)\n"
            "* widgets live in containments (the desktop, the panel)\n"
            "* activities: separate sets of widgets for separate tasks\n"

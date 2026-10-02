@@ -1,94 +1,108 @@
-/* gfx.h - drawing into an 80x25 text-mode back buffer.
+/* gfx.h - pixel graphics: a 32-bit back buffer and the drawing primitives the
+ * desktop is built from.
  *
- * The VGA text screen is a grid of 16-bit cells: the low byte is a character
- * from the IBM PC "code page 437" font, the high byte is the colour
- * attribute (4 bits background, 4 bits foreground).  We draw everything into
- * g_screen first and copy the whole thing to the screen once per frame, so
- * the user never sees half-drawn windows.
+ * Everything is drawn into a back buffer (g_px, 0x00RRGGBB per pixel) and the
+ * finished frame is copied to the screen in one go, so nothing half-drawn is
+ * ever visible.  All maths is integer-only: the kernel never turns on the
+ * floating point unit.
  */
 #ifndef SKARLET_GFX_H
 #define SKARLET_GFX_H
 
 #include <stdint.h>
+#include "font.h"
 #include "platform.h"
 
-enum {
-    BLACK, BLUE, GREEN, CYAN, RED, MAGENTA, BROWN, LGRAY,
-    DGRAY, LBLUE, LGREEN, LCYAN, LRED, LMAGENTA, YELLOW, WHITE
-};
-/* Colour 4 is plain red on a stock VGA card.  The SkarletOS kernel
- * reprograms the VGA palette so colour 4 is maroon (see vga_init in
- * kernel/arch_x86_64.c), and the host programs draw it the same way. */
-#define MAROON RED
-#define ATTR(fg, bg) ((uint8_t)(((bg) << 4) | (fg)))
+#define GFX_MAX_W 1920
+#define GFX_MAX_H 1200
 
-/* A few code page 437 glyphs we use for "graphics". */
-enum {
-    CH_SHADE1 = 0xB0, CH_SHADE2 = 0xB1, CH_SHADE3 = 0xB2, CH_FULL = 0xDB,
-    CH_UPPER = 0xDF, CH_LOWER = 0xDC,
-    CH_H = 0xC4, CH_V = 0xB3, CH_TL = 0xDA, CH_TR = 0xBF, CH_BL = 0xC0, CH_BR = 0xD9,
-    CH_LT = 0xC3, CH_RT = 0xB4,
-    CH_DH = 0xCD, CH_DV = 0xBA, CH_DTL = 0xC9, CH_DTR = 0xBB, CH_DBL = 0xC8, CH_DBR = 0xBC,
-    CH_RTRI = 0x10, CH_LTRI = 0x11, CH_UTRI = 0x1E, CH_DTRI = 0x1F,
-    CH_BULLET = 0x07, CH_CIRCLE = 0x09, CH_SQUARE = 0xFE, CH_DOT = 0xFA,
-    CH_NOTE = 0x0D, CH_SUN = 0x0F, CH_SMILE = 0x01, CH_DIAMOND = 0x04,
-    CH_HOUSE = 0x7F, CH_MENU = 0xF0,
-};
+#define RGB(r, g, b) ((uint32_t)(((r) << 16) | ((g) << 8) | (b)))
+#define MAROON RGB(0x80, 0x00, 0x00) /* HTML/CSS "maroon" */
+#define WHITE RGB(255, 255, 255)
+#define BLACK RGB(0, 0, 0)
 
-extern uint16_t g_screen[SCR_H * SCR_W];
+extern uint32_t *g_px; /* back buffer */
+extern int g_w, g_h;   /* screen size in pixels */
 
-void gfx_clip(int x, int y, int w, int h); /* restrict drawing to a rectangle */
+void gfx_init(int w, int h);
+void gfx_clip(int x, int y, int w, int h); /* intersect with the current clip */
 void gfx_noclip(void);
-void gfx_put(int x, int y, int ch, uint8_t attr);
-void gfx_fill(int x, int y, int w, int h, int ch, uint8_t attr);
-void gfx_text(int x, int y, const char *s, uint8_t attr);
-/* Draw at most maxw characters, padding with spaces up to maxw. */
-void gfx_textw(int x, int y, const char *s, int maxw, uint8_t attr);
-void gfx_center(int x, int y, int w, const char *s, uint8_t attr);
-void gfx_box(int x, int y, int w, int h, uint8_t attr, int dbl);
-void gfx_shadow(int x, int y, int w, int h); /* drop shadow right/below */
-void gfx_hline(int x, int y, int w, uint8_t attr);
-uint8_t gfx_attr_at(int x, int y);
-/* Read the visible text of one screen row into out (81 bytes). Used by tests. */
-void gfx_row_text(int y, char *out);
+
+/* Colour helpers.  "t" and alpha values run from 0 (none) to 255 (all). */
+uint32_t gfx_mix(uint32_t a, uint32_t b, int t);
+uint32_t gfx_get(int x, int y);
+
+/* Filled shapes; "a" is opacity 0..255.  Rounded corners are anti-aliased. */
+void gfx_rect(int x, int y, int w, int h, uint32_t c, int a);
+void gfx_rrect(int x, int y, int w, int h, int r, uint32_t c, int a);
+void gfx_rrect_line(int x, int y, int w, int h, int r, uint32_t c, int a);
+void gfx_shadow(int x, int y, int w, int h, int r, int blur, int a);
+void gfx_circle(int cx, int cy, int r, uint32_t c, int a);
+void gfx_ring(int cx, int cy, int r, int thick, uint32_t c, int a);
+/* A thick line with round ends (a "capsule"); coordinates in 1/16 pixel. */
+void gfx_line16(int x0, int y0, int x1, int y1, int thick16, uint32_t c, int a);
+void gfx_line(int x0, int y0, int x1, int y1, int thick, uint32_t c, int a);
+void gfx_vgradient(int x, int y, int w, int h, uint32_t top, uint32_t bottom, int a);
+
+/* Text.  y is the top of the line; returns the width drawn. */
+int gfx_text(const struct font *f, int x, int y, const char *s, uint32_t c, int a);
+int gfx_text_width(const struct font *f, const char *s);
+void gfx_text_center(const struct font *f, int x, int y, int w, const char *s, uint32_t c, int a);
+void gfx_text_right(const struct font *f, int right, int y, const char *s, uint32_t c, int a);
+/* Draw at most maxw pixels of text, ending with "..." if it had to be cut. */
+void gfx_text_fit(const struct font *f, int x, int y, int maxw, const char *s, uint32_t c, int a);
+
+/* Icons, drawn from lines and circles so they scale to any size. */
+enum {
+    IC_TERMINAL, IC_FOLDER, IC_FILE, IC_SETTINGS, IC_MONITOR, IC_LOGO, IC_SEARCH, IC_POWER,
+    IC_RESTART, IC_LOGOUT, IC_VOLUME, IC_NETWORK, IC_BELL, IC_HOME, IC_DESKTOP, IC_CLOCK,
+    IC_NOTES, IC_PUZZLE, IC_PLUS, IC_CLOSE, IC_MIN, IC_MAX, IC_ACTIVITY, IC_GRID, IC_LOCK,
+    IC_KEYBOARD, IC_CALC, IC_RUN, IC_STAR, IC_RECENT, IC_CHEVRON_R, IC_CHEVRON_L, IC_DRIVE,
+    IC_MUSIC, IC_HELP, IC_USER, IC_COUNT
+};
+void gfx_icon(int id, int x, int y, int size, uint32_t c, int a);
+/* A coloured rounded tile with a white icon, like an app icon. */
+void gfx_app_icon(int id, int x, int y, int size, uint32_t bg);
+
+/* A record of the text drawn in the current frame ("x y text" per line).
+ * Tests use it to ask what is on the screen without reading pixels. */
+void gfx_textlog_reset(void);
+int  gfx_text_visible(const char *needle);
+int  gfx_text_visible_in(int y0, int y1, const char *needle);
+const char *gfx_textlog(void);
 
 /* ---- themes ------------------------------------------------------------
- * Plasma 4 separated the look (the "desktop theme"; KDE shipped Air and
- * Oxygen) from the widgets themselves.  Every widget draws with these named
- * colours, so switching the theme re-skins the whole desktop at once.
- *
- * SkarletOS has two themes, Skarlet Light and Skarlet Dark, and an accent
- * colour (maroon by default) used for highlights, title bars, selections and
- * the wallpaper.  theme_apply() combines a theme and an accent into the
- * colours below. */
+ * As in KDE Plasma, the look is a separate theme every widget draws with.
+ * SkarletOS has a dark and a light theme, each built around an accent colour
+ * (maroon by default).  theme_apply() fills in g_theme. */
 struct theme {
     const char *name;
-    uint8_t desk, desk_ch;          /* wallpaper colour and pattern glyph */
-    uint8_t desk_hi;                /* wallpaper highlight streak */
-    uint8_t panel, panel_hi, panel_dim, panel_sep;
-    uint8_t win, win_dim, win_border, win_border_off;
-    uint8_t title_on, title_off, title_btn;
-    uint8_t menu, menu_hi, menu_head, menu_dim, menu_border;
-    uint8_t widget, widget_head, widget_focus, widget_border;
-    uint8_t input, sel, term, term_bold;
-    uint8_t notes, toast;
-    uint8_t accent, accent_alt;     /* solid accent blocks (two shades) */
-    uint8_t panel_btn;              /* task manager buttons on the panel */
+    int dark;
+    uint32_t window, titlebar, border;      /* app windows */
+    uint32_t card, panel;                   /* popups/widgets, the panel */
+    int card_a, panel_a;                    /* their opacity (translucency) */
+    uint32_t text, text_dim, text_on_accent;
+    uint32_t input, hover, divider;
+    uint32_t accent, accent_hi;             /* the accent, and a lighter tint */
+    uint32_t term_bg, term_fg, term_prompt; /* the terminal stays dark */
+    uint32_t wall_a, wall_b, wall_glow;     /* wallpaper gradient and glow */
+    int shadow_a;
 };
 
 struct accent {
     const char *name;
-    uint8_t dark, light; /* the accent and its lighter partner */
+    uint32_t color;
 };
 
-extern const struct theme *g_theme;   /* the colours currently in use */
+extern const struct theme *g_theme;
 extern const char *const g_theme_names[];
 extern const int g_theme_count;
 extern const struct accent g_accents[];
 extern const int g_accent_count;
 extern int g_theme_index, g_accent_index;
-
-/* Select a theme and an accent (indexes into the tables above). */
 void theme_apply(int theme, int accent);
+
+/* The wallpaper is rendered once (per size/theme) and copied each frame. */
+void gfx_wallpaper(int style);
 
 #endif

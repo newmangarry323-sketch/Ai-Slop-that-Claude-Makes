@@ -108,12 +108,16 @@ struct window *wm_open(int app, const char *arg)
     /* Cascade new windows so they do not hide each other completely. */
     struct window *vis[MAX_WIN];
     int n = wm_list_visible(vis, MAX_WIN);
-    w->x = 3 + (n % 6) * 3;
-    w->y = 1 + (n % 5) * 1;
-    if (w->x + w->w > SCR_W)
-        w->x = SCR_W - w->w;
-    if (w->y + w->h > DESK_H)
-        w->y = DESK_H - w->h;
+    w->w = MIN(w->w, g_w - 16);
+    w->h = MIN(w->h, DESK_BOTTOM - 16);
+    w->x = g_w / 2 - w->w / 2 - 180 + (n % 6) * 48;
+    w->y = 70 + (n % 5) * 40;
+    if (w->x + w->w > g_w - 8)
+        w->x = g_w - 8 - w->w;
+    if (w->x < 8)
+        w->x = 8;
+    if (w->y + w->h > DESK_BOTTOM)
+        w->y = MAX(8, DESK_BOTTOM - w->h);
     k_strlcpy(w->title, g_apps[app].name, sizeof w->title);
 
     z_order[nz++] = (int)(w - windows);
@@ -163,35 +167,60 @@ void wm_idle(void)
             g_app_impl[windows[i].app]->idle(&windows[i]);
 }
 
-/* Window decoration after KDE 4's Oxygen style: the title bar has the window's
- * own colour, with the title centred, the application icon (the window menu)
- * on the left and minimise / maximise / close on the right.  The active window
- * is not coloured in; instead it gets a "glow" round its frame, drawn here in
- * the accent colour, plus darker title text and a drop shadow. */
+/* Window decoration in the style of KDE Plasma's current Breeze theme: rounded
+ * corners, a soft shadow (deeper on the active window), a title bar in the
+ * window's own colours with the title centred and the app icon on the left,
+ * and round minimise / maximise / close buttons on the right.  On the active
+ * window the close button is filled with the accent colour and a thin accent
+ * outline marks it out. */
+#define FRAME_R 10 /* corner radius */
+
+static uint32_t frame_outline(int focused, int *alpha)
+{
+    *alpha = focused ? 200 : 255;
+    return focused ? g_theme->accent : g_theme->border;
+}
+
 static void draw_frame(struct window *w, int focused)
 {
     const struct theme *t = g_theme;
-    uint8_t glow = focused ? t->win_border : t->win_border_off;
-    uint8_t title = focused ? t->title_on : t->title_off;
-    uint8_t btn = focused ? t->title_btn : t->title_off;
+    int r = FRAME_R, oa;
+    gfx_shadow(w->x, w->y + (focused ? 6 : 3), w->w, w->h, r, focused ? 30 : 16,
+               focused ? t->shadow_a : t->shadow_a / 2);
+    gfx_rrect(w->x, w->y, w->w, w->h, r, t->window, 255);
+    /* Title bar: the window's top, slightly tinted, with square bottom corners. */
+    gfx_rrect(w->x, w->y, w->w, TITLE_H + r, r, t->titlebar, 255);
+    gfx_rect(w->x, w->y + TITLE_H, w->w, r, t->window, 255);
+    gfx_rect(w->x, w->y + TITLE_H, w->w, 1, t->divider, 255);
+    uint32_t oc = frame_outline(focused, &oa);
+    gfx_rrect_line(w->x, w->y, w->w, w->h, r, oc, oa);
 
-    gfx_fill(w->x, w->y, w->w, w->h, ' ', t->win);
-    gfx_box(w->x, w->y, w->w, w->h, glow, 0);
-    gfx_fill(w->x + 1, w->y, w->w - 2, 1, ' ', title);
-
-    gfx_put(w->x + 2, w->y, g_apps[w->app].icon, btn);
+    uint32_t title = focused ? t->text : t->text_dim;
+    gfx_icon(g_apps[w->app].icon, w->x + 12, w->y + 9, 18, focused ? t->accent_hi : t->text_dim,
+             255);
     char buf[64];
     if (g_ws.move_mode && focused)
         k_snprintf(buf, sizeof buf, "%s (moving)", w->title);
     else
         k_strlcpy(buf, w->title, sizeof buf);
-    gfx_center(w->x + 4, w->y, w->w - 13, buf, title);
+    int tw = gfx_text_width(&font_ui_bold, buf);
+    int avail = w->w - 160;
+    if (tw > avail)
+        gfx_text_fit(&font_ui_bold, w->x + 80, w->y + 9, avail, buf, title, 255);
+    else
+        gfx_text(&font_ui_bold, w->x + (w->w - tw) / 2, w->y + 9, buf, title, 255);
 
-    gfx_put(w->x + w->w - 8, w->y, '_', btn);
-    gfx_put(w->x + w->w - 6, w->y, CH_UTRI, btn);
-    gfx_put(w->x + w->w - 4, w->y, 'x', btn);
+    /* Buttons: minimise, maximise, close. */
+    int bx = w->x + w->w - 30, by = w->y + TITLE_H / 2;
     if (focused)
-        gfx_shadow(w->x, w->y, w->w, w->h);
+        gfx_circle(bx, by, 10, t->accent, 255);
+    else
+        gfx_circle(bx, by, 10, t->hover, 255);
+    gfx_icon(IC_CLOSE, bx - 7, by - 7, 14, focused ? WHITE : t->text_dim, 255);
+    gfx_circle(bx - 28, by, 10, t->hover, 255);
+    gfx_icon(IC_MAX, bx - 35, by - 7, 14, title, 255);
+    gfx_circle(bx - 56, by, 10, t->hover, 255);
+    gfx_icon(IC_MIN, bx - 63, by - 7, 14, title, 255);
 }
 
 int wm_count_on_desk(int desk)
@@ -213,9 +242,33 @@ void wm_draw(void)
         if (!wm_visible(w))
             continue;
         draw_frame(w, w == focused);
-        gfx_clip(w->x + 1, w->y + 1, w->w - 2, w->h - 2);
-        g_app_impl[w->app]->draw(w, w->x + 1, w->y + 1, w->w - 2, w->h - 2, w == focused);
+        /* The client area fills the window below the title bar.  Its square
+         * bottom corners would poke out of the rounded frame, so we save the
+         * two corner squares first, and afterwards put them back and refill
+         * the rounded part with the colour the app drew next to them. */
+        enum { R = FRAME_R };
+        uint32_t saved[2][R * R];
+        int by = w->y + w->h - R, sx[2] = { w->x, w->x + w->w - R };
+        for (int k = 0; k < 2; k++)
+            for (int y = 0; y < R; y++)
+                for (int x = 0; x < R; x++)
+                    saved[k][y * R + x] = gfx_get(sx[k] + x, by + y);
+        int cx = w->x + 1, cy = w->y + TITLE_H + 1, cw = w->w - 2, ch = w->h - TITLE_H - 2;
+        gfx_clip(cx, cy, cw, ch);
+        g_app_impl[w->app]->draw(w, cx, cy, cw, ch, w == focused);
         gfx_noclip();
+        int oa;
+        uint32_t oc = frame_outline(w == focused, &oa);
+        for (int k = 0; k < 2; k++) {
+            uint32_t fill = gfx_get(k ? sx[k] - 1 : sx[k] + R, w->y + w->h - 2);
+            for (int y = 0; y < R; y++)
+                for (int x = 0; x < R; x++)
+                    gfx_rect(sx[k] + x, by + y, 1, 1, saved[k][y * R + x], 255);
+            gfx_clip(sx[k], by, R, R);
+            gfx_rrect(w->x, w->y, w->w, w->h, R, fill, 255);
+            gfx_rrect_line(w->x, w->y, w->w, w->h, R, oc, oa);
+            gfx_noclip();
+        }
     }
 }
 

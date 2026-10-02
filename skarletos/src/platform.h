@@ -3,9 +3,9 @@
  * Everything in src/ is plain C that does not touch hardware.  It only talks
  * to the machine through the functions below.  There are three
  * implementations:
- *   kernel/arch_x86_64.c  - real hardware (VGA text memory, PS/2, CMOS clock)
- *   host/host_tty.c       - runs inside a Linux terminal, for trying it out
+ *   kernel/arch_x86_64.c  - real hardware (framebuffer, PS/2, CMOS clock)
  *   host/test_ui.c        - scripted keys + screen assertions, for tests
+ *   host/sh_repl.c        - stubs, for running just the shell on Linux
  * Keeping this boundary small is what makes the system testable.
  */
 #ifndef SKARLET_PLATFORM_H
@@ -38,13 +38,12 @@ struct datetime {
     int hour, minute, second;
 };
 
-#define SCR_W 80
-#define SCR_H 25
-
 /* Returns 1 and fills *k if a key is waiting, 0 otherwise. Never blocks. */
 int  plat_key_poll(struct key *k);
-/* Copy the 80x25 back buffer (VGA format: char | attribute << 8) to the screen. */
-void plat_present(const uint16_t *cells);
+/* The screen size the platform set up (the desktop adapts to it). */
+void plat_display_size(int *w, int *h);
+/* Show a finished frame: w x h pixels, 0x00RRGGBB each, row after row. */
+void plat_present(const uint32_t *pixels, int w, int h);
 void plat_time(struct datetime *t);
 /* Total RAM in KiB as reported by the boot loader (0 if unknown). */
 uint32_t plat_mem_kib(void);

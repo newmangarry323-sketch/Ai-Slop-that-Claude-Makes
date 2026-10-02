@@ -1,22 +1,28 @@
 # SkarletOS build.
 #
 #   make            build build/skarletos.bin (the x86-64 kernel) and build/skarletos.elf
-#   make run        boot it in QEMU            (needs qemu-system-x86_64)
-#   make iso        make a bootable CD image   (needs grub-mkrescue + xorriso)
-#   make host       build build/skarlet-tty, the same desktop inside a Linux terminal
+#   make iso        make build/skarletos.iso, a CD image that boots on BIOS and UEFI
+#                   PCs and VMs such as VMware (downloads the Limine boot loader once)
+#   make run        boot the ISO in QEMU (needs qemu-system-x86_64)
+#   make run-kernel boot the kernel directly with QEMU's -kernel option (no ISO)
 #   make shell      build build/skarlet-sh, just the shell and file system on the command line
-#   make test       build and run the scripted UI tests on Linux
-#   make emutest    boot the real kernel in the Unicorn CPU emulator (needs python unicorn)
-#   make demo       record a tour of the real kernel and render PNG screenshots + a GIF
-#                   into build/demo (needs python unicorn, Chromium, ImageMagick, ffmpeg)
+#   make test       build and run the scripted UI tests on Linux (screenshots in build/screens)
+#   make qemutest   boot the ISO in QEMU, press keys and check the screen
+#   make demo       a 21-step tour of the ISO in QEMU: checked PNG screenshots + a GIF in
+#                   build/tour (needs QEMU and ImageMagick; ffmpeg for the GIF)
+#   make fonts      regenerate src/font_data.c from the DejaVu fonts (needs FreeType)
 #   make clean
+#
+# Set QEMU=/path/to/qemu-system-x86_64 to use another QEMU, and OVMF=/path/to/code.fd to
+# boot "make run" / "make qemutest" with UEFI firmware instead of the BIOS.
 
 CC      ?= gcc
 LD      ?= ld
 OBJCOPY ?= objcopy
 PYTHON  ?= python3
+QEMU    ?= qemu-system-x86_64
 
-CORE_SRC := src/lib.c src/gfx.c src/vfs.c src/shell.c src/wm.c src/apps.c \
+CORE_SRC := src/lib.c src/gfx.c src/font_data.c src/vfs.c src/shell.c src/wm.c src/apps.c \
             src/plasmoids.c src/workspace.c
 WARN     := -Wall -Wextra -Wno-unused-parameter
 
@@ -33,7 +39,7 @@ KOBJS   := $(patsubst %.c,build/kernel/%.o,$(CORE_SRC) kernel/arch_x86_64.c) \
 
 HCFLAGS := -std=gnu11 -O1 -g $(WARN) -fsanitize=address,undefined -fno-omit-frame-pointer
 
-.PHONY: all run iso host shell test emutest demo clean
+.PHONY: all run run-kernel iso shell test qemutest demo fonts clean
 
 all: build/skarletos.bin
 
@@ -54,21 +60,35 @@ build/skarletos.bin: build/skarletos.elf
 	$(OBJCOPY) -O binary $< $@
 	@echo "Built $@ ($$(stat -c %s $@) bytes)"
 
-run: build/skarletos.bin
-	qemu-system-x86_64 -kernel build/skarletos.bin -m 128M
+run-kernel: build/skarletos.bin
+	$(QEMU) -kernel build/skarletos.bin -m 256M -vga vmware -serial stdio
 
-iso: build/skarletos.bin
-	@mkdir -p build/iso/boot/grub
+# The Limine boot loader's prebuilt binaries (BSD-2-Clause licence).  Set
+# LIMINE_DIR to use a copy you already have.
+LIMINE_VERSION ?= v11.4.1
+LIMINE_DIR     ?= build/limine
+
+$(LIMINE_DIR)/limine-bios-cd.bin:
+	git clone --depth=1 --branch $(LIMINE_VERSION)-binary \
+	    https://github.com/limine-bootloader/limine.git $(LIMINE_DIR)
+
+iso: build/skarletos.iso
+
+build/skarletos.iso: build/skarletos.bin boot/limine.conf tools/mkiso.py $(LIMINE_DIR)/limine-bios-cd.bin
+	rm -rf build/iso
+	mkdir -p build/iso/boot/limine
 	cp build/skarletos.bin build/iso/boot/skarletos.bin
-	printf 'set timeout=0\nmenuentry "SkarletOS" {\n  multiboot /boot/skarletos.bin\n  boot\n}\n' \
-	    > build/iso/boot/grub/grub.cfg
-	grub-mkrescue -o build/skarletos.iso build/iso
+	cp boot/limine.conf $(addprefix $(LIMINE_DIR)/,limine-bios.sys limine-bios-cd.bin \
+	    limine-uefi-cd.bin) build/iso/boot/limine/
+	cp $(LIMINE_DIR)/LICENSE build/iso/boot/limine/license.txt
+	$(PYTHON) tools/mkiso.py $@ build/iso boot/limine/limine-bios-cd.bin \
+	    boot/limine/limine-uefi-cd.bin
 
-host: build/skarlet-tty
-
-build/skarlet-tty: $(CORE_SRC) host/host_tty.c host/cp437.h src/*.h
-	@mkdir -p build
-	$(CC) -std=gnu11 -O2 $(WARN) -o $@ $(CORE_SRC) host/host_tty.c
+# -vga vmware is the same VMware SVGA II adapter VMware emulates; try -vga std too.
+run: build/skarletos.iso
+	$(QEMU) -cdrom build/skarletos.iso -m 256M -vga vmware -serial stdio \
+	    $(if $(OVMF),-drive if=pflash$(comma)format=raw$(comma)readonly=on$(comma)file=$(OVMF))
+comma := ,# a literal comma, for use inside $(if ...)
 
 shell: build/skarlet-sh
 
@@ -76,22 +96,29 @@ build/skarlet-sh: $(CORE_SRC) host/sh_repl.c src/*.h
 	@mkdir -p build
 	$(CC) -std=gnu11 -O2 $(WARN) -o $@ $(CORE_SRC) host/sh_repl.c
 
-build/test_ui: $(CORE_SRC) host/test_ui.c host/cp437.h src/*.h
+build/test_ui: $(CORE_SRC) host/test_ui.c src/*.h
 	@mkdir -p build
 	$(CC) $(HCFLAGS) -o $@ $(CORE_SRC) host/test_ui.c
 
 test: build/test_ui
 	./build/test_ui
 
-emutest: build/skarletos.bin
-	$(PYTHON) tools/emu_boot_test.py build/skarletos.elf build/skarletos.bin
+qemutest: build/skarletos.iso
+	$(PYTHON) tools/qemu_test.py --qemu $(QEMU) $(if $(OVMF),--uefi $(OVMF)) build/skarletos.iso
 
-demo: build/skarletos.bin
-	$(PYTHON) tools/demo_tour.py build/skarletos.bin build/demo
-	$(PYTHON) tools/vga_render.py build/demo/png build/demo/*.vga
-	ffmpeg -loglevel error -y -framerate 0.6 -pattern_type glob -i 'build/demo/png/*.png' \
-	    -vf "scale=640:-1:flags=neighbor,split[a][b];[a]palettegen=max_colors=32[p];[b][p]paletteuse=dither=none" \
-	    -loop 0 build/demo/tour.gif
+demo: build/skarletos.iso
+	$(PYTHON) tools/qemu_tour.py --qemu $(QEMU) $(if $(OVMF),--uefi $(OVMF)) \
+	    build/skarletos.iso build/skarletos.elf build/tour
+	ffmpeg -loglevel error -y -framerate 0.6 -pattern_type glob -i 'build/tour/*.png' \
+	    -vf "scale=960:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128[p];[b][p]paletteuse=dither=bayer" \
+	    -loop 0 build/tour/tour.gif
+
+build/mkfont: tools/mkfont.c
+	@mkdir -p build
+	$(CC) -O2 $< -o $@ $$(pkg-config --cflags --libs freetype2)
+
+fonts: build/mkfont
+	./build/mkfont /usr/share/fonts/truetype/dejavu > src/font_data.c
 
 clean:
 	rm -rf build

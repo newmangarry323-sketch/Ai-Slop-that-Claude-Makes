@@ -3,20 +3,20 @@
 Everything on this page was produced by running SkarletOS, not drawn or typed by
 hand:
 
-* The **screenshots** come from the real kernel (`build/skarletos.bin`) booted in
-  the Unicorn x86-64 emulator. `tools/demo_tour.py` presses keys on the emulated
-  PS/2 keyboard and saves the VGA text memory after each step, and
-  `tools/vga_render.py` draws it with the VGA palette (colour 4 as maroon, as the
-  kernel programs it) and the Unifont 8×16 font. Every step checks that the
-  expected text is on screen before saving. Re-create them with `make demo`.
+* The **screenshots** come from `release/skarletos.iso` booted in QEMU 9.2.0 with
+  its VMware SVGA II adapter (`-vga vmware`), at 1918 × 1075. `tools/qemu_tour.py`
+  presses keys on the emulated PS/2 keyboard and saves a screenshot after each
+  step. Before saving, it reads the kernel's record of the text it drew in that
+  frame straight out of guest memory and checks that the expected text is on
+  screen. Re-create them with `make demo`.
 * The **shell transcripts** are output of `build/skarlet-sh` (`make shell`), which
   runs the same shell and file-system code as the kernel.
-* The **code examples** were applied to a copy of the source tree. That copy was
-  built (kernel and tests) and checked before they were written here.
+* The **code examples** were applied to a copy of the source tree, built and
+  tested (the kernel, plus checks in the UI test harness) before being written
+  here.
 
-The emulated clock starts at 10:30:00 on 1 August 2012, the day KDE released
-Plasma Workspaces 4.9, and ticks one second per step. The interface imitates the
-Plasma 4.8 desktop that came just before it.
+The emulated clock starts at 10:30 on Saturday 1 August 2026 (QEMU's
+`-rtc base=` option), so the dates in the pictures stay the same every run.
 
 ![The whole tour as an animation](screenshots/tour.gif)
 
@@ -26,43 +26,41 @@ Each caption says which keys led to the screen.
 
 ### 1. Logging in
 ![Login screen](screenshots/01-login.png)
-The login screen after typing a password (any password works; it is not checked).
+The login screen after typing a password (any password works; it is not checked):
+a large clock and the date over a darkened wallpaper, the avatar, and the
+password field.
 
 ### 2. The desktop
 ![Desktop](screenshots/02-desktop.png)
-**Enter** logs in. The desktop containment holds three plasmoids: Folder View (the
-files in `~/Desktop`, with its title inside the widget), the Digital Clock and a
-Notes sticky note. The welcome notification sits above the system tray. The panel
-along the bottom, left to right: the launcher `S`, the pager `1 2 3 4`, the task
-manager (empty), the system tray (hidden-icons arrow, device notifier, volume,
-notifications), the clock, show desktop `⌂` and the panel toolbox `☼`. The thin
-dark band above the panel is its rim. The desktop toolbox ("cashew") is the `☼` in
-the top right corner.
+**Enter** logs in. The desktop holds three widgets: Folder View (the files in
+`~/Desktop`), Notes, and the Digital Clock. The welcome notification sits above the
+system tray. The floating panel along the bottom, left to right: the maroon
+launcher button, the pager `1 2 3 4`, the task buttons (none yet), the tray
+(network, volume, notifications), the clock with the date, and show desktop.
 
-### 3. Skarlet Launcher (after Kickoff)
+### 3. Skarlet Launcher
 ![Launcher favourites](screenshots/03-launcher.png)
-**Alt+F1** opens the launcher: the user and the search field in the header, the
-favourites as two-line entries (name, then description), and the five tabs with
-their icons along the bottom.
+**Alt+F1** (or tapping the Meta key) opens the launcher: the user and the search
+field in the header, sections down the left, and the favourites as two-line
+entries with coloured app icons.
 
 ![Launcher applications](screenshots/04-launcher-applications.png)
-**Right arrow** switches to Applications, which lists categories. **Enter** on
-System opens it, with a "◄ All Applications ► System" breadcrumb. **Backspace**
+**Right arrow** moves to Applications, which lists categories. **Enter** on
+System opens it, with an "All Applications / System" breadcrumb. **Backspace**
 goes back.
 
 ### 4. Skarlet Runner as a calculator
 ![Runner calculator](screenshots/05-runner-calculator.png)
-**Alt+F2** drops the runner down from the top edge: help `?` and settings `☼` on
-the left, close `x` on the right. Typing `(12+30)*2` gives `= 84` from the
-calculator runner, and the command-line runner offers to run the text.
+**Alt+F2** opens the runner near the top of the screen. Typing `(12+30)*2`
+gives `84` from the calculator, and the command-line runner offers to run the
+text.
 
 ### 5. Skarlet Terminal and the shell
 ![Skarlet Terminal](screenshots/06-terminal.png)
-**Alt+F1, Enter** starts Skarlet Terminal (the first favourite). Commands typed:
-`uname -a`, `ls -l`, `echo Hello from SkarletOS > hello.txt`, `cat hello.txt`,
-`calc (12+30)*2`. The window decoration follows KDE 4's Oxygen style: a
-window-coloured title bar with the app's icon on the left and `_ ▲ x` on the
-right, and a maroon glow round the active window.
+**Esc, Alt+F1, Enter** starts Skarlet Terminal (the first favourite). Commands
+typed: `uname -a`, `ls -l`, `echo Hello from SkarletOS > hello.txt`,
+`cat hello.txt`, `calc (12+30)*2`. The active window has a deeper shadow, an
+accent outline and a maroon close button.
 
 ### 6. Skarlet Runner opening a place
 ![Runner places](screenshots/07-runner-places.png)
@@ -71,8 +69,8 @@ Skarlet Files.
 
 ### 7. Skarlet Files
 ![Skarlet Files](screenshots/08-files.png)
-**Enter** opens Skarlet Files there: Places panel on the left, files on the
-right, location bar on top, folder/file count at the bottom.
+**Enter** opens Skarlet Files there: Places on the left, the location on top,
+files with sizes, and a folder/file count at the bottom.
 
 ### 8. Skarlet Write
 ![Skarlet Write](screenshots/09-write.png)
@@ -81,65 +79,64 @@ status bar. **Ctrl+S** saves.
 
 ### 9. Skarlet Monitor
 ![Skarlet Monitor](screenshots/10-monitor.png)
-**Ctrl+Esc** lists the running "processes" (one per window) with PID, name,
-virtual desktop and title. **Delete** ends the selected one. The panel's task
-manager now has a button, with an icon, for each window.
+**Ctrl+Esc** shows uptime, file and data usage, and the running "processes" (one
+per window) with PID, name, virtual desktop and title. **Delete** ends the
+selected one. Each window also has a task button on the panel.
 
-### 10. Dashboard
+### 10. Widgets over the windows
 ![Dashboard](screenshots/11-dashboard.png)
-**Ctrl+F12** hides the windows to show the desktop widgets; the show-desktop
-icon on the panel lights up. Press it again to bring the windows back.
+**Ctrl+F12** hides the windows to show the desktop widgets. Press it again to
+bring the windows back.
 
-### 11. The desktop toolbox and Add Widgets
-![Toolbox](screenshots/12-toolbox.png)
-**Alt+F12** opens the desktop toolbox: Add Widgets, Activities, Lock Widgets,
+### 11. The desktop menu and Add Widgets
+![Desktop menu](screenshots/12-desktop-menu.png)
+**Alt+F12** opens the desktop menu: Add Widgets, Activities, Lock Widgets,
 Desktop Settings and Keyboard Shortcuts.
 
 ![Add Widgets](screenshots/13-add-widgets.png)
-**Enter** opens Add Widgets as a strip above the panel: a tile per widget, the
+**Enter** opens Add Widgets as a sheet above the panel: a tile per widget, the
 selected widget's description, and a search field (type to narrow the tiles).
 
 ![Widget added](screenshots/14-widget-added.png)
 **Right ×3, Enter** adds a System Monitor to the first free spot and shows a
-notification; **Ctrl+F12** shows it. Because it is focused and widgets are
-unlocked, its applet handle (`x` to remove, `↕` to move) is beside it.
+notification. **Ctrl+F12** shows it above the windows.
 
 ### 12. Activities
-![Activities strip](screenshots/15-activities.png)
-Toolbox → **Activities...** opens the same kind of strip: one tile per activity
-(the current one marked), plus New Activity. **Delete** removes the selected
-activity.
+![Activities sheet](screenshots/15-activities.png)
+Desktop menu → **Activities...** opens the same kind of sheet: one tile per
+activity (the current one marked), plus New Activity. **Delete** removes the
+selected activity.
 
 ![Play activity](screenshots/16-activity-play.png)
 Switching to **Play** shows a different set of widgets: a System Monitor and the
 Fifteen Puzzle, focused with **Tab** and played with the arrow keys. The windows
 stay behind in the "Desktop" activity they belong to.
 
-### 13. Skarlet Settings and the dark theme
-![Settings](screenshots/17-settings-dark.png)
+### 13. Skarlet Settings and the light theme
+![Settings](screenshots/17-settings-light.png)
 Back in "Desktop", **Alt+F2** `settings` **Enter** opens Skarlet Settings.
-Changes made: theme Skarlet Light → Skarlet Dark, wallpaper → Dots, clock →
-12-hour (the panel now reads `10:30 AM`). The accent stays **Maroon**, shown by
-the swatch; Left/Right on "Accent colour" would choose Blue, Teal, Green or
-Purple.
+Changes made: theme Skarlet Dark → Skarlet Light, wallpaper → Dots, clock →
+12-hour (the panel now reads `10:32 AM`). The accent stays **Maroon**, shown by
+the ringed swatch. Left/Right on "Accent colour" would choose Blue, Teal, Green
+or Purple.
 
-![Dark desktop](screenshots/18-dark-desktop.png)
-**Alt+F4** closes Skarlet Settings. The windows, panel and launcher now use the
-dark colours, still with maroon highlights.
+![Light desktop](screenshots/18-desktop-light.png)
+**Alt+F4** closes Skarlet Settings. Windows, panel and widgets now use the light
+colours, still with maroon highlights. The terminal stays dark on purpose.
 
-### 14. Recently Used and Leave
+### 14. Recently Used, Power and shutting down
 ![Recently Used](screenshots/19-launcher-recent.png)
-**Alt+F1, Right ×3** shows Recently Used, split like Kickoff's into Applications
-(Skarlet Settings and Skarlet Terminal, started from the runner and the
-launcher) and Documents (the `README.txt` opened in Skarlet Write).
+**Alt+F1, Right ×3** shows Recently Used: applications started from the runner
+and the launcher, and documents (the `README.txt` opened in Skarlet Write).
 
-![Leave tab](screenshots/20-leave.png)
-**Right** moves to Leave, grouped into Session (Log out) and System (Restart,
+![Power](screenshots/20-power.png)
+**Right** moves to Power, grouped into Session (Log out) and System (Restart,
 Shut down).
 
 ![Shut down](screenshots/21-shutdown.png)
-**Shut down** draws this screen, then writes to the QEMU power-off port (the demo
-checks that the write happened).
+Searching `shut` and pressing **Enter** draws this screen, then asks the
+(virtual) machine to power off through the ACPI port QEMU provides. The tour
+checks that QEMU reports the guest as shut down.
 
 ## Shell examples
 
@@ -168,7 +165,7 @@ ID=skarletos
 PRETTY_NAME="SkarletOS 0.1 (x86-64)"
 user@skarlet:~$ cd Documents
 user@skarlet:~/Documents$ cat plasma-notes.txt
-Plasma 4 ideas this desktop copies:
+KDE Plasma ideas this desktop copies:
 * everything on the desktop and panel is a widget (plasmoid)
 * widgets live in containments (the desktop, the panel)
 * activities: separate sets of widgets for separate tasks
@@ -340,9 +337,10 @@ static void counter_draw(struct plasmoid *p, int x, int y, int w, int h, int foc
 {
     char buf[16];
     k_snprintf(buf, sizeof buf, "%d", p->sel); /* p->sel is free to use here */
-    gfx_center(x, y + h / 2, w, buf, g_theme->widget_head);
+    gfx_text_center(&font_title, x, y + 8, w, buf, g_theme->text, 255);
     if (focused)
-        gfx_center(x, y + h - 1, w, "+ / - to count", g_theme->widget);
+        gfx_text_center(&font_small, x, y + h - font_small.line, w, "+ / - to count",
+                        g_theme->text_dim, 255);
 }
 
 static int counter_key(struct plasmoid *p, struct key k)
@@ -357,12 +355,14 @@ static int counter_key(struct plasmoid *p, struct key k)
 }
 ```
 
-Add a row to the `g_plasmoid_types` table. `.header = 1` puts the title inside
-the widget, and `.icon` is the glyph on its Add Widgets tile:
+`x, y, w, h` is the widget's content area in pixels, below its title. The
+colours come from the theme, so the widget follows Skarlet Dark/Light and the
+accent automatically. Add a row to the `g_plasmoid_types` table. `.header = 1`
+gives it a title bar with its icon, and the size is in pixels:
 
 ```c
     [PL_COUNTER] = { .id = "counter", .name = "Counter", .desc = "Press + and - to count",
-                     .icon = '+', .header = 1, .w = 18, .h = 7, .draw = counter_draw,
+                     .icon = IC_PLUS, .header = 1, .w = 220, .h = 150, .draw = counter_draw,
                      .key = counter_key },
 ```
 
@@ -372,14 +372,16 @@ and a name to the enum in `src/desktop.h`, just before `PL_COUNT`:
 enum { PL_FOLDERVIEW, PL_NOTES, PL_CLOCK, PL_SYSMON, PL_FIFTEEN, PL_COUNTER, PL_COUNT };
 ```
 
-Counter now appears as a sixth tile in **Alt+F12 → Add Widgets...** (the strip
-scrolls to show it). In the check run, adding it and pressing `+ + + -` showed
-`2`, with the applet handle beside the widget.
+Counter now appears as a sixth tile in **Alt+F12 → Add Widgets...** (typing
+`count` finds it). In the check run, adding it and pressing `+ + + -` showed
+`2`, with the hint underneath while it is focused.
 
-This is the Plasma idea in miniature. The desktop containment never needs to
-know what a Counter is: it only calls `draw` and `key` through the table.
+This is the Plasma idea in miniature. The desktop never needs to know what a
+Counter is: it only calls `draw` and `key` through the table.
 
 ### Things to try next
 * `head FILE` (first 5 lines) or `grep WORD FILE` as shell commands.
 * A **Calendar** widget using the date in `g_ws.now`.
 * A new accent colour: add a line to `g_accents[]` in `src/gfx.c`.
+* A new icon in `gfx_icon()` (`src/gfx.c`): icons are drawn from lines and
+  circles on a 24 × 24 grid, so they stay sharp at any size.
