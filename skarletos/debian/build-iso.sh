@@ -39,7 +39,7 @@ rm -rf "$WORK"
 mkdir -p "$WORK/iso/live" "$WORK/iso/boot/grub"
 # The packages, by purpose.  "Recommends" are left out to keep it small.
 PKGS="linux-image-amd64 live-boot systemd-sysv systemd-resolved libpam-systemd dbus udev
-      sudo apt ca-certificates tzdata locales kbd console-setup bash-completion less nano
+      sudo apt whiptail ca-certificates tzdata locales kbd console-setup bash-completion less nano
       curl wget procps psmisc htop file man-db iproute2 iputils-ping pciutils
       xserver-xorg-core xserver-xorg-input-libinput xserver-xorg-video-vmware
       xserver-xorg-video-fbdev xinit xauth x11-xserver-utils fonts-dejavu-core

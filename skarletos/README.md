@@ -79,7 +79,9 @@ Debian packages tens of thousands of them [L1]. Debian's own package search
 is at https://packages.debian.org/trixie/. A graphical program puts a
 `.desktop` file in `/usr/share/applications` (the freedesktop.org Desktop
 Entry rules [L3]); the launcher checks those folders every two seconds, so
-the program appears there by itself, sorted into a category. Its windows get
+the program appears there by itself, sorted into a category. (A few small
+programs ship no such file, xeyes among them; start those by typing their
+name in the terminal.) Its windows get
 SkarletOS frames, panel buttons, Alt+Tab, minimise, maximise and F11 full
 screen.
 
