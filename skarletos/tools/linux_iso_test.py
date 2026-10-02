@@ -17,6 +17,7 @@ commands it runs in Skarlet Terminal write markers like "APT-OK" (through
 Usage: linux_iso_test.py ISO [--qemu Q] [--uefi CODE.fd] [--out DIR] [--install DISK]
 """
 import argparse
+import base64
 import os
 import shutil
 import subprocess
@@ -83,6 +84,11 @@ class Machine:
         img = read_ppm(base + ".ppm")
         if shutil.which("convert"):
             subprocess.run(["convert", base + ".ppm", base + ".png"], check=False)
+            # A small JPEG of the screen in the log, readable where the
+            # build's files cannot be downloaded.
+            thumb = subprocess.run(["convert", base + ".ppm", "-resize", "480x", "-quality", "60",
+                                    "jpg:-"], capture_output=True).stdout
+            print("THUMB %s %s" % (name, base64.b64encode(thumb).decode()), flush=True)
             os.remove(base + ".ppm")
         return img
 
@@ -120,10 +126,17 @@ def looks_like_login(img):
 
 
 def looks_like_desktop(img):
-    """The desktop: the maroon launcher button at the left end of the panel."""
+    """The desktop: the maroon launcher button at the left end of the panel
+    (searched for near the bottom-left corner)."""
     w, h, _ = img
-    r, g, b = pixel(img, 36, h - 20)
-    return r > 100 and g < 40 and b < 40
+    hits = 0
+    for y in range(h - 70, h, 2):
+        for x in range(0, 120, 2):
+            r, g, b = pixel(img, x, y)
+            hits += r > 100 and g < 40 and b < 40
+    print("  maroon samples near the launcher button: %d; pixel (36, h-20) = %s" %
+          (hits, pixel(img, 36, h - 20)), flush=True)
+    return hits > 20
 
 
 def wait_screen(m, test, name, timeout):
