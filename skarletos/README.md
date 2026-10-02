@@ -1,3 +1,5 @@
+<img src="docs/logo/skarletos-logo-128.png" alt="SkarletOS logo" width="96" align="right">
+
 # SkarletOS
 
 A small UNIX-like operating system for **x86-64 PCs**, written in C, with a
@@ -259,6 +261,14 @@ roughly from easiest to hardest:
 Try each step yourself before looking anything up. The sources below explain
 the hardware side, and reading them is how you'll learn to do the next step
 without help.
+
+## Logo
+
+`docs/logo/` has the logo as SVG (scales to any size) and as PNGs with
+transparent backgrounds (64, 128, 256 and 512 px): `skarletos-logo` is the white
+S on the maroon (#800000) circle, `skarletos-mark` is the maroon S alone. It is
+the same shape the OS draws on the panel's launcher button and the shut-down
+screen (`IC_LOGO` in `src/gfx.c`).
 
 ## Licences
 
