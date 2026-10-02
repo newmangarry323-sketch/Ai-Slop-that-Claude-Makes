@@ -95,6 +95,8 @@ def main():
     ap.add_argument("--out", default="build/qemu")
     ap.add_argument("--tour", action="store_true", help="also open apps and take more screenshots")
     ap.add_argument("--boot-wait", type=float, default=20)
+    ap.add_argument("--slow", type=float, default=1,
+                    help="multiply every wait, for slow machines (CI without KVM)")
     ap.add_argument("--extra", default="", help="more QEMU options, e.g. '-device bochs-display'")
     args = ap.parse_args()
 
@@ -114,7 +116,7 @@ def main():
         shots = []
 
         def shot(name, wait=0):
-            time.sleep(wait)
+            time.sleep(wait * args.slow)
             path = os.path.join(args.out, name + ".ppm")
             mon.cmd("screendump " + path)
             time.sleep(0.5)
@@ -124,7 +126,7 @@ def main():
         def keys(*names, gap=0.6):
             for k in names:
                 mon.cmd("sendkey " + k)
-                time.sleep(gap)
+                time.sleep(gap * args.slow)
 
         def check(cond, what):
             nonlocal failures

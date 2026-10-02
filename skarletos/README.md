@@ -25,8 +25,10 @@ protection and no disk. See [What it does not do](#what-it-does-not-do).
 
 ## Run it in VMware
 
-The bootable CD image is **[`release/skarletos.iso`](release/skarletos.iso)**
-(4 MiB). It boots with either BIOS or UEFI firmware.
+The bootable CD image is **`skarletos.iso`** (4 MiB): download it from the
+[SkarletOS 0.1 release](https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/skarletos-v0.1) or take
+[`release/skarletos.iso`](release/skarletos.iso) from this folder (the same
+file). It boots with either BIOS or UEFI firmware.
 
 1. Create a new virtual machine (Workstation: *File → New Virtual Machine*,
    Typical). Choose **"Installer disc image file (iso)"** and pick

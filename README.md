@@ -30,15 +30,25 @@ Everything is in [`rust-building-mod/`](rust-building-mod/), including the ready
 
 ## SkarletOS (x86-64 hobby OS)
 
-A small UNIX-like operating system in C for 64-bit PCs, with a modern desktop
-inspired by KDE Plasma: a floating panel, rounded translucent windows and
-popups, a launcher, a runner, widgets and activities, dark and light themes, and
-a maroon accent colour. It draws at 1918 × 1075 and has a shell, an in-memory
-file system, and Skarlet Terminal, Files, Write, Settings and Monitor.
+<img src="skarletos/docs/logo/skarletos-logo-128.png" alt="SkarletOS logo" width="80" align="right">
 
-**Try it in VMware:** boot [`skarletos/release/skarletos.iso`](skarletos/release/skarletos.iso)
-in a VM set to "Other 64-bit" (BIOS or UEFI; leave Secure Boot off). The
-[SkarletOS README](skarletos/README.md#run-it-in-vmware) has the steps.
+A small UNIX-like operating system written in C for 64-bit PCs. It boots on its
+own (no Linux or Windows underneath) and draws a modern desktop inspired by KDE
+Plasma at 1918 × 1075, with a maroon accent colour:
+
+* a floating panel, rounded translucent windows and popups, widgets, activities,
+  notifications, a login screen, and dark and light themes;
+* apps: Skarlet Terminal (a UNIX-style shell), Files, Write, Settings and Monitor,
+  plus Skarlet Launcher (Alt+F1) and Skarlet Runner (Alt+F2);
+* its own drivers for VMware's graphics adapter, the keyboard and the clock, and
+  an in-memory file system.
+
+**Download:** `skarletos.iso` from the [SkarletOS 0.1 release](https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/skarletos-v0.1), or
+[`skarletos/release/skarletos.iso`](skarletos/release/skarletos.iso) in this repo.
+Boot it in a VMware VM set to "Other 64-bit" (BIOS or UEFI; leave Secure Boot off).
+The [SkarletOS README](skarletos/README.md#run-it-in-vmware) has the steps.
+
+![SkarletOS desktop](skarletos/docs/screenshots/03-launcher.png)
 
 Everything is in [`skarletos/`](skarletos/), with screenshots, a guide to how it
 works, and exercises.
