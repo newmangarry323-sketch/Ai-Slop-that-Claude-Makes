@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72" width="512" height="512">
+  <title>SkarletOS logo (mark only)</title>
+  <!-- The same geometry the OS draws (src/gfx.c, IC_LOGO; draw_off() in
+       src/workspace.c): a maroon (#800000) circle of radius 36 and the S, two
+       arcs of radius 5 on a 24-unit grid, scaled into a 44-unit square in the
+       middle. The OS approximates each arc with 30-degree straight segments. -->
+  <g transform="translate(14 14) scale(1.8333333)" fill="none" stroke="#800000"
+     stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 13 A5 5 0 1 1 17 8"/>
+    <path d="M12 11 A5 5 0 1 1 7 16"/>
+  </g>
+</svg>
