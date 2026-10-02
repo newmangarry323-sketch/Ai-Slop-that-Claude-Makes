@@ -70,6 +70,9 @@ struct window {
     int desk;       /* virtual desktop 0..3 */
     int activity;
     char title[48];
+    long ext;       /* another program's window (platform handle), or 0 */
+    int minimized, maximized;
+    int rx, ry, rw, rh; /* the rectangle to restore after maximizing */
     union {
         struct term_state term;
         struct files_state files;
@@ -84,12 +87,24 @@ struct app {
     void (*draw)(struct window *w, int x, int y, int cw, int ch, int focused);
     void (*key)(struct window *w, struct key k);
     void (*idle)(struct window *w); /* optional, called every tick */
+    /* optional: a mouse event in the client area, x/y relative to it */
+    void (*mouse)(struct window *w, struct mouse m, int cw, int ch);
 };
-extern const struct app *const g_app_impl[APP_COUNT];
+extern const struct app *const g_app_impl[APP_SLOTS];
 
 /* wm.c - the window manager */
 struct window *wm_open(int app, const char *arg);
-void wm_close(struct window *w);
+/* Another program's window (the X11 session): SkarletOS draws and manages
+ * its frame; the platform shows the program's content in the client area,
+ * which is (x + 1, y + TITLE_H + 1) and (w - 2) x (h - TITLE_H - 2). */
+struct window *wm_open_external(long ext, const char *title, int cw, int ch);
+struct window *wm_by_ext(long ext);
+void wm_close(struct window *w);  /* external windows: asks the program */
+void wm_remove(struct window *w); /* forget a window at once */
+void wm_activate(struct window *w); /* un-minimize, raise and focus */
+void wm_minimize(struct window *w);
+void wm_toggle_maximize(struct window *w);
+void wm_client_rect(const struct window *w, int *x, int *y, int *cw, int *ch);
 struct window *wm_focused(void);
 struct window *wm_by_pid(int pid);
 void wm_raise(struct window *w);
@@ -102,6 +117,10 @@ void wm_activity_removed(int activity);
 int  wm_count_on_desk(int desk); /* windows on a virtual desktop (current activity) */
 /* Visible windows of the current desktop, bottom to top. Returns count. */
 int  wm_list_visible(struct window **out, int max);
+/* All windows of the current desktop, minimized ones too, bottom to top. */
+int  wm_list_desk(struct window **out, int max);
+/* Every open window, bottom to top (for platforms that mirror the stack). */
+int  wm_list_all(struct window **out, int max);
 
 /* ---- plasmoids ---------------------------------------------------------- */
 
@@ -165,7 +184,26 @@ extern struct workspace g_ws;
 void ws_init(void);
 void ws_tick(void);   /* poll input, update, redraw: call in a loop */
 void ws_key(struct key k);
+void ws_mouse(struct mouse m);
 void ws_draw(void);
+int  ws_popup_open(void); /* a launcher, runner, menu or sheet is showing */
+
+/* Clickable regions, recorded while a frame is drawn (later ones on top). */
+enum {
+    HIT_NONE, HIT_SWALLOW, HIT_PANEL, HIT_LOGIN, HIT_ITEM, HIT_TAB, HIT_CRUMB, HIT_CLOSE_POPUP,
+    HIT_PANEL_LAUNCHER, HIT_PANEL_DESK, HIT_PANEL_TASK, HIT_PANEL_SHOWDESK, HIT_TOAST,
+    HIT_WIN_TITLE, HIT_WIN_CLOSE, HIT_WIN_MAX, HIT_WIN_MIN, HIT_WIN_CLIENT, HIT_WIN_RESIZE,
+    HIT_WIDGET, HIT_WIDGET_REMOVE, HIT_WIDGET_MOVE,
+};
+void ws_hit(int x, int y, int w, int h, int kind, int arg);
+int  ws_hit_at(int x, int y, int *arg); /* the top-most region's kind */
+
+/* Rounded rectangles drawn above the windows (panel, popups, notifications):
+ * a platform that stacks real windows needs to put these on top. */
+struct layer {
+    int x, y, w, h, r;
+};
+int ws_layers(struct layer *out, int max);
 void ws_place_widget(struct activity *a, int type);
 void ws_format_time(char *out, int size, int seconds);
 void ws_note_document(const char *path); /* for the launcher's Recently Used tab */

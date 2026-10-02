@@ -14,9 +14,22 @@ static int z_order[MAX_WIN];
 static int nz;
 static int next_pid = 100;
 
-int wm_visible(const struct window *w)
+/* The empty default for platforms that never open external windows. */
+__attribute__((weak)) void plat_window_close(long ext) { (void)ext; }
+
+static int on_this_desk(const struct window *w)
 {
     return w->used && w->desk == g_ws.desk && w->activity == g_ws.activity;
+}
+
+int wm_visible(const struct window *w) { return on_this_desk(w) && !w->minimized; }
+
+struct window *wm_by_ext(long ext)
+{
+    for (int i = 0; ext && i < MAX_WIN; i++)
+        if (windows[i].used && windows[i].ext == ext)
+            return &windows[i];
+    return 0;
 }
 
 struct window *wm_by_pid(int pid)
@@ -43,6 +56,23 @@ int wm_list_visible(struct window **out, int max)
     for (int i = 0; i < nz && n < max; i++)
         if (wm_visible(&windows[z_order[i]]))
             out[n++] = &windows[z_order[i]];
+    return n;
+}
+
+int wm_list_desk(struct window **out, int max)
+{
+    int n = 0;
+    for (int i = 0; i < nz && n < max; i++)
+        if (on_this_desk(&windows[z_order[i]]))
+            out[n++] = &windows[z_order[i]];
+    return n;
+}
+
+int wm_list_all(struct window **out, int max)
+{
+    int n = 0;
+    for (int i = 0; i < nz && n < max; i++)
+        out[n++] = &windows[z_order[i]];
     return n;
 }
 
@@ -82,10 +112,10 @@ void wm_cycle(void)
     z_order[0] = idx;
 }
 
-struct window *wm_open(int app, const char *arg)
+/* A new window of the given outer size, cascaded so that new windows do not
+ * hide each other completely, on top of the stack. */
+static struct window *new_window(int app, int ww, int wh)
 {
-    if (app < 0 || app >= APP_COUNT)
-        return 0;
     struct window *w = 0;
     for (int i = 0; i < MAX_WIN; i++)
         if (!windows[i].used) {
@@ -94,22 +124,16 @@ struct window *wm_open(int app, const char *arg)
         }
     if (!w)
         return 0;
-
-    const struct app *impl = g_app_impl[app];
     k_memset(w, 0, sizeof *w);
     w->used = 1;
     w->pid = next_pid++;
     w->app = app;
-    w->w = impl->w;
-    w->h = impl->h;
     w->desk = g_ws.desk;
     w->activity = g_ws.activity;
-
-    /* Cascade new windows so they do not hide each other completely. */
     struct window *vis[MAX_WIN];
     int n = wm_list_visible(vis, MAX_WIN);
-    w->w = MIN(w->w, g_w - 16);
-    w->h = MIN(w->h, DESK_BOTTOM - 16);
+    w->w = MIN(ww, g_w - 16);
+    w->h = MIN(wh, DESK_BOTTOM - 16);
     w->x = g_w / 2 - w->w / 2 - 180 + (n % 6) * 48;
     w->y = 70 + (n % 5) * 40;
     if (w->x + w->w > g_w - 8)
@@ -119,15 +143,42 @@ struct window *wm_open(int app, const char *arg)
     if (w->y + w->h > DESK_BOTTOM)
         w->y = MAX(8, DESK_BOTTOM - w->h);
     k_strlcpy(w->title, g_apps[app].name, sizeof w->title);
-
     z_order[nz++] = (int)(w - windows);
-    impl->init(w, arg);
     g_ws.dashboard = 0;
     g_ws.need_redraw = 1;
     return w;
 }
 
-void wm_close(struct window *w)
+struct window *wm_open(int app, const char *arg)
+{
+    if (app < 0 || app >= APP_COUNT)
+        return 0;
+    const struct app *impl = g_app_impl[app];
+    struct window *w = new_window(app, impl->w, impl->h);
+    if (w)
+        impl->init(w, arg);
+    return w;
+}
+
+struct window *wm_open_external(long ext, const char *title, int cw, int ch)
+{
+    struct window *w = new_window(APP_EXTERNAL, cw + 2, ch + TITLE_H + 2);
+    if (!w)
+        return 0;
+    w->ext = ext;
+    k_strlcpy(w->title, title && *title ? title : "Application", sizeof w->title);
+    return w;
+}
+
+void wm_client_rect(const struct window *w, int *x, int *y, int *cw, int *ch)
+{
+    *x = w->x + 1;
+    *y = w->y + TITLE_H + 1;
+    *cw = w->w - 2;
+    *ch = w->h - TITLE_H - 2;
+}
+
+void wm_remove(struct window *w)
 {
     int i = z_index(w);
     if (i < 0)
@@ -140,6 +191,49 @@ void wm_close(struct window *w)
     g_ws.need_redraw = 1;
 }
 
+/* Our own windows close at once; another program is asked to close its
+ * window, and the platform removes it when the program has done so (or
+ * the program may ask "save changes?" first). */
+void wm_close(struct window *w)
+{
+    if (w->ext)
+        plat_window_close(w->ext);
+    else
+        wm_remove(w);
+}
+
+void wm_activate(struct window *w)
+{
+    if (!w || !w->used)
+        return;
+    w->minimized = 0;
+    g_ws.desk = w->desk;
+    g_ws.activity = w->activity;
+    wm_raise(w);
+    g_ws.need_redraw = 1;
+}
+
+void wm_minimize(struct window *w)
+{
+    w->minimized = 1;
+    g_ws.move_mode = 0;
+    g_ws.need_redraw = 1;
+}
+
+/* Maximized windows fill the space above the panel. */
+void wm_toggle_maximize(struct window *w)
+{
+    if (w->maximized) {
+        w->x = w->rx, w->y = w->ry, w->w = w->rw, w->h = w->rh;
+        w->maximized = 0;
+    } else {
+        w->rx = w->x, w->ry = w->y, w->rw = w->w, w->rh = w->h;
+        w->x = 0, w->y = 0, w->w = g_w, w->h = DESK_BOTTOM;
+        w->maximized = 1;
+    }
+    g_ws.need_redraw = 1;
+}
+
 void wm_close_all(void)
 {
     for (int i = 0; i < MAX_WIN; i++)
@@ -147,16 +241,23 @@ void wm_close_all(void)
     nz = 0;
 }
 
-/* An activity was deleted: close its windows and renumber the later ones. */
+/* An activity was deleted: close its windows and renumber the later ones.
+ * Other programs' windows cannot be closed on the spot, so they move to the
+ * first activity instead. */
 void wm_activity_removed(int activity)
 {
     for (int i = 0; i < MAX_WIN; i++) {
-        if (!windows[i].used)
+        struct window *w = &windows[i];
+        if (!w->used)
             continue;
-        if (windows[i].activity == activity)
-            wm_close(&windows[i]);
-        else if (windows[i].activity > activity)
-            windows[i].activity--;
+        if (w->activity == activity) {
+            if (w->ext)
+                w->activity = 0;
+            else
+                wm_remove(w);
+        } else if (w->activity > activity) {
+            w->activity--;
+        }
     }
 }
 
@@ -242,6 +343,18 @@ void wm_draw(void)
         if (!wm_visible(w))
             continue;
         draw_frame(w, w == focused);
+        /* Clickable parts, top-most last: the whole window, its title bar,
+         * the three buttons and (unless maximized) a resize grip. */
+        int bx = w->x + w->w - 30, bmy = w->y + TITLE_H / 2;
+        ws_hit(w->x, w->y, w->w, w->h, HIT_WIN_CLIENT, w->pid);
+        ws_hit(w->x, w->y, w->w, TITLE_H, HIT_WIN_TITLE, w->pid);
+        ws_hit(bx - 12, bmy - 12, 24, 24, HIT_WIN_CLOSE, w->pid);
+        ws_hit(bx - 40, bmy - 12, 24, 24, HIT_WIN_MAX, w->pid);
+        ws_hit(bx - 68, bmy - 12, 24, 24, HIT_WIN_MIN, w->pid);
+        if (!w->maximized)
+            ws_hit(w->x + w->w - 16, w->y + w->h - 16, 16, 16, HIT_WIN_RESIZE, w->pid);
+        if (w->ext)
+            continue; /* the program fills the client area itself */
         /* The client area fills the window below the title bar.  Its square
          * bottom corners would poke out of the rounded frame, so we save the
          * two corner squares first, and afterwards put them back and refill

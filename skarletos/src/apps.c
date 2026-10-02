@@ -7,7 +7,7 @@
 #include "gfx.h"
 #include "lib.h"
 
-const struct app_info g_apps[APP_COUNT] = {
+const struct app_info g_apps[APP_SLOTS] = {
     [APP_TERMINAL] = { "skterm", "Skarlet Terminal", "Terminal", "System", IC_TERMINAL,
                        RGB(0x3a, 0x34, 0x40) },
     [APP_FILES] = { "skfiles", "Skarlet Files", "File Manager", "System", IC_FOLDER,
@@ -18,6 +18,9 @@ const struct app_info g_apps[APP_COUNT] = {
                        IC_SETTINGS, RGB(0x63, 0x67, 0x72) },
     [APP_MONITOR] = { "skmonitor", "Skarlet Monitor", "Process monitor", "System", IC_MONITOR,
                       RGB(0x22, 0x8f, 0x62) },
+    /* Another program's window; its title comes from the program. */
+    [APP_EXTERNAL] = { "app", "Application", "Application", "", IC_GRID,
+                       RGB(0x5d, 0x57, 0x64) },
 };
 
 int svc_app_by_name(const char *name)
@@ -252,7 +255,19 @@ static void term_key(struct window *w, struct key key)
     }
 }
 
-static const struct app terminal_app = { 780, 480, term_init, term_draw, term_key, term_idle };
+/* The wheel scrolls back through the output. */
+static void term_mouse(struct window *w, struct mouse m, int cw, int ch)
+{
+    (void)cw, (void)ch;
+    struct term_state *k = &w->s.term;
+    if (m.type == MOUSE_WHEEL)
+        k->scroll = MAX(0, MIN(k->scroll + (m.button == 4 ? 3 : -3), k->nlines));
+}
+
+static const struct app terminal_app = {
+    .w = 780, .h = 480, .init = term_init, .draw = term_draw, .key = term_key,
+    .idle = term_idle, .mouse = term_mouse,
+};
 
 /* ======================================================================== */
 /* Skarlet Files                                                             */
@@ -423,7 +438,50 @@ static void files_key(struct window *w, struct key k)
     }
 }
 
-static const struct app files_app = { 780, 480, files_init, files_draw, files_key, 0 };
+/* Click a place or a file to select it; double-click a file or folder to
+ * open it; the back arrow goes up a folder; the wheel scrolls. */
+static void files_mouse(struct window *w, struct mouse m, int cw, int ch)
+{
+    struct files_state *d = &w->s.files;
+    if (m.type == MOUSE_WHEEL) {
+        for (int i = 0; i < 3; i++)
+            files_key(w, (struct key){ m.button == 4 ? K_UP : K_DOWN, 0 });
+        return;
+    }
+    if (m.type != MOUSE_DOWN || m.button != 1)
+        return;
+    if (m.x < FILES_SIDEBAR) {
+        int i = (m.y - 36) / 36;
+        if (m.y >= 36 && i < ARRAY_LEN(places)) {
+            d->pane = 0;
+            d->place = i;
+            files_key(w, (struct key){ K_ENTER, 0 });
+        }
+        return;
+    }
+    int lx = m.x - FILES_SIDEBAR;
+    if (m.y < 46) {
+        if (lx < 36)
+            files_key(w, (struct key){ K_BACKSPACE, 0 });
+        return;
+    }
+    int r = (m.y - 50) / FILES_ROW, rows = (ch - 50 - 34) / FILES_ROW;
+    int kids[VFS_MAX_NODES];
+    int n = vfs_list(d->dir, kids, VFS_MAX_NODES);
+    (void)cw;
+    if (m.y < 50 || r >= rows || d->top + r >= n)
+        return;
+    d->pane = 1;
+    if (m.clicks >= 2 && d->sel == d->top + r)
+        files_key(w, (struct key){ K_ENTER, 0 });
+    else
+        d->sel = d->top + r;
+}
+
+static const struct app files_app = {
+    .w = 780, .h = 480, .init = files_init, .draw = files_draw, .key = files_key,
+    .mouse = files_mouse,
+};
 
 /* ======================================================================== */
 /* Skarlet Write                                                             */
@@ -595,7 +653,32 @@ static void ed_key(struct window *w, struct key k)
     ed_title(w);
 }
 
-static const struct app write_app = { 760, 500, ed_init, ed_draw, ed_key, 0 };
+/* A click puts the cursor where you clicked; the wheel moves it by lines. */
+static void ed_mouse(struct window *w, struct mouse m, int cw, int ch)
+{
+    struct edit_state *e = &w->s.ed;
+    (void)cw, (void)ch;
+    if (m.type == MOUSE_WHEEL) {
+        for (int i = 0; i < 3; i++)
+            ed_key(w, (struct key){ m.button == 4 ? K_UP : K_DOWN, 0 });
+        return;
+    }
+    if (m.type != MOUSE_DOWN || m.button != 1 || m.y < 8)
+        return;
+    int line = e->top + (m.y - 8) / ED_LH;
+    int col = MAX(0, (m.x - ED_GUTTER - 10 + term_cw() / 2) / term_cw());
+    int pos = 0;
+    for (int l = 0; l < line && pos < e->len; pos++)
+        if (e->buf[pos] == '\n')
+            l++;
+    if (pos > e->len)
+        pos = e->len;
+    e->cur = MIN(pos + col, ed_line_end(e, pos));
+}
+
+static const struct app write_app = {
+    .w = 760, .h = 500, .init = ed_init, .draw = ed_draw, .key = ed_key, .mouse = ed_mouse,
+};
 
 /* ======================================================================== */
 /* Skarlet Settings                                                          */
@@ -686,7 +769,30 @@ static void set_key(struct window *w, struct key k)
         set_change(*sel, -1);
 }
 
-static const struct app settings_app = { 640, 500, set_init, set_draw, set_key, 0 };
+/* Click a row to select it; click the arrows of its control (or a colour
+ * swatch) to change it. */
+static void set_mouse(struct window *w, struct mouse m, int cw, int ch)
+{
+    (void)ch;
+    if (m.type != MOUSE_DOWN || m.button != 1)
+        return;
+    int i = (m.y - 88) / 52;
+    if (m.y < 88 || i >= ARRAY_LEN(setting_names) || (m.y - 88) % 52 >= 44)
+        return;
+    w->s.list.sel = i;
+    int right = cw - 40;
+    if (i == 1) {
+        for (int a = g_accent_count - 1, cx = right - 12; a >= 0; a--, cx -= 30)
+            if (m.x >= cx - 14 && m.x < cx + 14)
+                theme_apply(g_theme_index, a);
+    } else if (m.x >= right - 150 && m.x < right) {
+        set_change(i, m.x < right - 75 ? -1 : 1);
+    }
+}
+
+static const struct app settings_app = {
+    .w = 640, .h = 500, .init = set_init, .draw = set_draw, .key = set_key, .mouse = set_mouse,
+};
 
 /* ======================================================================== */
 /* Skarlet Monitor (process list)                                            */
@@ -772,12 +878,35 @@ static void mon_key(struct window *w, struct key k)
         svc_kill(monitor_last.pids[*sel]);
 }
 
-static const struct app monitor_app = { 720, 440, mon_init, mon_draw, mon_key, 0 };
+static void mon_mouse(struct window *w, struct mouse m, int cw, int ch)
+{
+    (void)cw, (void)ch;
+    int r = (m.y - 124) / 34;
+    if (m.type == MOUSE_DOWN && m.button == 1 && m.y >= 124 && r < monitor_last.count)
+        w->s.list.sel = r;
+}
 
-const struct app *const g_app_impl[APP_COUNT] = {
+static const struct app monitor_app = {
+    .w = 720, .h = 440, .init = mon_init, .draw = mon_draw, .key = mon_key, .mouse = mon_mouse,
+};
+
+/* Other programs draw their own windows and get their own keys and clicks,
+ * so the external "app" does nothing. */
+static void ext_init(struct window *w, const char *arg) { (void)w, (void)arg; }
+static void ext_draw(struct window *w, int x, int y, int cw, int ch, int focused)
+{
+    (void)w, (void)x, (void)y, (void)cw, (void)ch, (void)focused;
+}
+static void ext_key(struct window *w, struct key k) { (void)w, (void)k; }
+static const struct app external_app = {
+    .w = 640, .h = 480, .init = ext_init, .draw = ext_draw, .key = ext_key,
+};
+
+const struct app *const g_app_impl[APP_SLOTS] = {
     [APP_TERMINAL] = &terminal_app,
     [APP_FILES] = &files_app,
     [APP_WRITE] = &write_app,
     [APP_SETTINGS] = &settings_app,
     [APP_MONITOR] = &monitor_app,
+    [APP_EXTERNAL] = &external_app,
 };

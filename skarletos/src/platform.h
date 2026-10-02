@@ -50,4 +50,24 @@ uint32_t plat_mem_kib(void);
 void plat_reboot(void);
 void plat_poweroff(void); /* may return if the machine cannot power off */
 
+/* Mouse events, for platforms that have a pointer (the X11 session); they
+ * call ws_mouse() with these.  Buttons: 1 left, 2 middle, 3 right; the wheel
+ * arrives as MOUSE_WHEEL with button 4 (up) or 5 (down). */
+enum { MOUSE_DOWN, MOUSE_UP, MOUSE_MOVE, MOUSE_WHEEL };
+struct mouse {
+    int type;
+    int x, y;   /* screen coordinates */
+    int button;
+    int clicks; /* 2 for the second press of a double click */
+};
+
+/* Optional hooks for platforms that show other programs' windows (see
+ * wm_open_external() in desktop.h).  The core provides empty defaults, so
+ * platforms without such windows need not define them. */
+void plat_window_close(long ext); /* ask the program to close the window */
+/* Check the login password (default: anything is accepted), and the hint
+ * shown under the password field. */
+int plat_login(const char *password);
+const char *plat_login_hint(void);
+
 #endif
