@@ -9,10 +9,14 @@
 #ifndef SKARLET_VFS_H
 #define SKARLET_VFS_H
 
-#define VFS_MAX_NODES 160
+/* Limits of the in-memory file system.  On Linux, linux/vfs_linux.c
+ * implements this same interface over the real disk, with larger limits. */
+#ifndef VFS_MAX_NODES
+#define VFS_MAX_NODES 160 /* files and folders; also the most a folder lists */
 #define VFS_NAME_MAX  28
-#define VFS_FILE_MAX  2048
+#define VFS_FILE_MAX  2048 /* bytes in a file (and in Skarlet Write) */
 #define VFS_PATH_MAX  128
+#endif
 #define VFS_ROOT      0
 
 /* Error codes (negative return values), named after the real errno values. */

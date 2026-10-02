@@ -53,6 +53,28 @@ The [SkarletOS README](skarletos/README.md#run-it-in-vmware) has the steps.
 Everything is in [`skarletos/`](skarletos/), with screenshots, a guide to how it
 works, and exercises.
 
+### SkarletOS, Debian edition (installs Linux software)
+
+The same desktop on top of **Debian 13** with a real Linux kernel, so you can
+install and run Linux programs, terminal and graphical, with `apt`:
+
+```sh
+sudo apt update
+sudo apt install firefox-esr     # or gimp, vlc, libreoffice...
+sudo apt remove firefox-esr
+```
+
+Installed programs appear in the launcher and run in SkarletOS window frames.
+It is a live ISO you can install to disk with `sudo skarlet-install`.
+
+**Download:** `skarletos-linux.iso` from the
+[Debian edition release](https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/skarletos-linux-v1.0).
+In VMware choose "Debian 13.x 64-bit", 2 GB of memory; the live password is
+`skarlet`. Details in the
+[SkarletOS README](skarletos/README.md#debian-edition-install-linux-software).
+
+![Firefox in SkarletOS](skarletos/docs/screenshots/linux/11-firefox.png)
+
 
 
 

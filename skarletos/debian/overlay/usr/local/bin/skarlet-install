@@ -1,0 +1,147 @@
+#!/bin/bash
+# skarlet-install - install the running SkarletOS live system onto a disk.
+#
+#   sudo skarlet-install                       asks which disk and a password
+#   sudo skarlet-install --disk /dev/sda --password PW --yes   (no questions)
+#
+# What it does:
+#   1. partitions the disk (GPT): a 1 MiB BIOS boot partition, a 256 MiB EFI
+#      system partition and the rest for the system (ext4), so the disk
+#      starts with either BIOS or UEFI firmware
+#   2. copies the running system to it, including programs you installed
+#      in the live session
+#   3. removes the live-boot parts, sets your password, and installs GRUB
+#      for both kinds of firmware
+set -euo pipefail
+
+DISK="" PASSWORD="" YES=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+    --disk) DISK=$2; shift 2 ;;
+    --password) PASSWORD=$2; shift 2 ;;
+    --yes) YES=1; shift ;;
+    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+    *) echo "skarlet-install: unknown option $1" >&2; exit 2 ;;
+    esac
+done
+
+die() { echo "skarlet-install: $*" >&2; exit 1; }
+[ "$(id -u)" = 0 ] || die "run it with sudo:  sudo skarlet-install"
+[ -d /run/live ] || die "this is not the live system (SkarletOS is already installed?)"
+
+# The disk the live system came from must not be chosen.
+live_disk=$(lsblk -no PKNAME "$(findmnt -no SOURCE /run/live/medium 2>/dev/null)" 2>/dev/null || true)
+mapfile -t disks < <(lsblk -dpno NAME,TYPE,RO | awk '$2 == "disk" && $3 == 0 { print $1 }' |
+                     grep -v "^/dev/${live_disk:-none}\$" || true)
+if [ -z "$DISK" ]; then
+    [ ${#disks[@]} -gt 0 ] || die "no disk to install to (add a hard disk to the virtual machine)"
+    echo "Disks:"
+    lsblk -dpo NAME,SIZE,MODEL "${disks[@]}"
+    DISK=${disks[0]}
+    if [ ${#disks[@]} -gt 1 ]; then
+        read -rp "Install to which disk? [$DISK] " answer
+        DISK=${answer:-$DISK}
+    fi
+fi
+[ -b "$DISK" ] || die "$DISK is not a disk"
+size=$(lsblk -bdno SIZE "$DISK")
+[ "$size" -ge $((4 * 1024 * 1024 * 1024)) ] || die "$DISK is too small (4 GiB or more needed)"
+
+if [ $YES = 0 ]; then
+    echo
+    echo "Everything on $DISK ($(lsblk -dno SIZE "$DISK")) will be erased."
+    read -rp "Type ERASE to continue: " answer
+    [ "$answer" = ERASE ] || die "nothing was changed"
+fi
+if [ -z "$PASSWORD" ]; then
+    while :; do
+        read -rsp "New password for user: " PASSWORD; echo
+        read -rsp "Again: " again; echo
+        [ -n "$PASSWORD" ] && [ "$PASSWORD" = "$again" ] && break
+        echo "The passwords did not match (or were empty); try again."
+    done
+fi
+
+part() { if [[ $DISK =~ [0-9]$ ]]; then echo "${DISK}p$1"; else echo "${DISK}$1"; fi; }
+
+echo "== Partitioning $DISK"
+swapoff -a 2>/dev/null || true
+wipefs -aq "$DISK"
+sfdisk -q "$DISK" <<PARTS
+label: gpt
+size=1MiB, type=21686148-6449-6E6F-744E-656564454649, name=bios
+size=256MiB, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, name=efi
+type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, name=skarletos
+PARTS
+udevadm settle
+mkfs.vfat -F 32 -n EFI "$(part 2)" >/dev/null
+mkfs.ext4 -qF -L skarletos "$(part 3)"
+
+T=/mnt/skarlet-target
+mkdir -p "$T"
+mount "$(part 3)" "$T"
+mkdir -p "$T/boot/efi"
+mount "$(part 2)" "$T/boot/efi"
+
+echo "== Copying the system (a few minutes)"
+rsync -aHAX --info=progress2 --no-inc-recursive \
+    --exclude=/proc/ --exclude=/sys/ --exclude=/dev/ --exclude=/run/ --exclude=/tmp/ \
+    --exclude=/mnt/ --exclude=/media/ --exclude=/lost+found --exclude=/boot/efi/ \
+    --exclude=/usr/lib/live/mount/ --exclude=/lib/live/mount/ --exclude=/var/cache/apt/archives/*.deb \
+    / "$T/"
+mkdir -p "$T"/{proc,sys,dev,run,tmp,mnt,media}
+chmod 1777 "$T/tmp"
+
+root_uuid=$(blkid -s UUID -o value "$(part 3)")
+efi_uuid=$(blkid -s UUID -o value "$(part 2)")
+cat > "$T/etc/fstab" <<FSTAB
+# <file system>     <mount point>  <type>  <options>          <dump> <pass>
+UUID=$root_uuid     /              ext4    errors=remount-ro  0      1
+UUID=$efi_uuid      /boot/efi      vfat    umask=0077         0      1
+FSTAB
+echo skarlet > "$T/etc/hostname"
+rm -f "$T/etc/skarletos/login-hint"
+
+for d in dev dev/pts proc sys run; do mount --bind "/$d" "$T/$d"; done
+[ -d /sys/firmware/efi/efivars ] && mount --bind /sys/firmware/efi/efivars "$T/sys/firmware/efi/efivars" || true
+cleanup() {
+    for d in sys/firmware/efi/efivars run sys proc dev/pts dev boot/efi ""; do
+        umount "$T/$d" 2>/dev/null || true
+    done
+}
+trap cleanup EXIT
+
+echo "== Finishing the installed system"
+echo "user:$PASSWORD" | chroot "$T" chpasswd
+# The live-boot parts are not needed on a disk; this also rebuilds the
+# initramfs without them.
+chroot "$T" env DEBIAN_FRONTEND=noninteractive apt-get purge -yq live-boot live-boot-initramfs-tools >/dev/null
+kver=$(ls "$T/lib/modules" | sort -V | tail -1)
+[ -e "$T/vmlinuz" ] || ln -s "boot/vmlinuz-$kver" "$T/vmlinuz"
+[ -e "$T/initrd.img" ] || ln -s "boot/initrd.img-$kver" "$T/initrd.img"
+chroot "$T" update-initramfs -u -k all >/dev/null
+
+echo "== Installing the boot loader (GRUB) for BIOS and UEFI"
+chroot "$T" grub-install --target=i386-pc "$DISK"
+chroot "$T" grub-install --target=x86_64-efi --efi-directory=/boot/efi --removable --no-nvram
+cat > "$T/boot/grub/grub.cfg" <<GRUB
+# Written by skarlet-install.  /vmlinuz and /initrd.img always point at
+# the newest kernel, so kernel updates need no change here.
+set timeout=2
+insmod part_gpt
+insmod ext2
+insmod all_video
+search --no-floppy --fs-uuid --set=root $root_uuid
+menuentry "SkarletOS" {
+    linux /vmlinuz root=UUID=$root_uuid ro quiet console=tty0 console=ttyS0,115200
+    initrd /initrd.img
+}
+menuentry "SkarletOS (safe graphics)" {
+    linux /vmlinuz root=UUID=$root_uuid ro nomodeset
+    initrd /initrd.img
+}
+GRUB
+sync
+echo
+echo "Done.  Shut down, remove the SkarletOS ISO from the virtual CD drive,"
+echo "and start the machine again: it starts from the disk."

@@ -148,16 +148,16 @@ static void clock_draw(struct plasmoid *p, int x, int y, int w, int h, int focus
 
 /* ---- System monitor ------------------------------------------------------ */
 
-static void bar(int x, int y, int w, const char *label, int used, int total)
+static void bar(int x, int y, int w, const char *label, int pct)
 {
     const struct theme *t = g_theme;
+    pct = MAX(0, MIN(pct, 100));
     gfx_text(&font_small, x, y, label, t->text_dim, 255);
-    int pct = total > 0 ? used * 100 / total : 0;
     char num[8];
     k_snprintf(num, sizeof num, "%d%%", pct);
     gfx_text_right(&font_small, x + w, y, num, t->text_dim, 255);
     gfx_rrect(x, y + 18, w, 8, 4, t->input, 255);
-    int fill = total > 0 ? (int)((int64_t)used * w / total) : 0;
+    int fill = pct * w / 100;
     if (fill > 0)
         gfx_rrect(x, y + 18, MAX(fill, 8), 8, 4, t->accent, 255);
 }
@@ -167,14 +167,31 @@ static void sysmon_draw(struct plasmoid *p, int x, int y, int w, int h, int focu
     (void)p;
     (void)focused;
     (void)h;
-    struct window *vis[MAX_WIN];
-    bar(x, y, w, "Files", vfs_used(), VFS_MAX_NODES);
-    bar(x, y + 36, w, "Data", vfs_bytes_used(), VFS_MAX_NODES * VFS_FILE_MAX);
-    bar(x, y + 72, w, "Windows", wm_list_visible(vis, MAX_WIN), MAX_WIN);
+    struct usage_bar bars[3];
+    int n = plat_usage(bars, 3);
+    for (int i = 0; i < n; i++)
+        bar(x, y + 36 * i, w, bars[i].label, bars[i].pct);
     char line[40];
     uint32_t up = svc_uptime();
     k_snprintf(line, sizeof line, "Uptime %u:%02u:%02u", up / 3600, (up / 60) % 60, up % 60);
     gfx_text(&font_small, x, y + 110, line, g_theme->text_dim, 255);
+}
+
+/* The default bars: how full the in-memory file system is, and how many
+ * windows are open.  The Linux session provides CPU, memory and disk. */
+__attribute__((weak)) int plat_usage(struct usage_bar *out, int max)
+{
+    struct window *vis[MAX_WIN];
+    int vals[3] = { vfs_used() * 100 / VFS_MAX_NODES,
+                    (int)((int64_t)vfs_bytes_used() * 100 / (VFS_MAX_NODES * VFS_FILE_MAX)),
+                    wm_list_visible(vis, MAX_WIN) * 100 / MAX_WIN };
+    static const char *const labels[3] = { "Files", "Data", "Windows" };
+    int n = MIN(max, 3);
+    for (int i = 0; i < n; i++) {
+        k_strlcpy(out[i].label, labels[i], sizeof out[i].label);
+        out[i].pct = vals[i];
+    }
+    return n;
 }
 
 /* ---- Fifteen Puzzle: slide the tiles into order -------------------------- */

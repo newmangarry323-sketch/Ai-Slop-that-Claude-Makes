@@ -366,15 +366,62 @@ static void draw_glyph(const struct font *f, const struct glyph *g, int x, int y
     }
 }
 
+/* Text is UTF-8.  Decode one character and advance *ps; a broken byte
+ * sequence comes out as '?'. */
+unsigned gfx_utf8_next(const char **ps)
+{
+    const unsigned char *s = (const unsigned char *)*ps;
+    unsigned c = s[0];
+    int len = c < 0x80 ? 1 : (c & 0xe0) == 0xc0 ? 2 : (c & 0xf0) == 0xe0 ? 3
+            : (c & 0xf8) == 0xf0 ? 4 : 0;
+    if (len == 0) {
+        *ps += 1;
+        return '?';
+    }
+    unsigned cp = len == 1 ? c : c & (0x7f >> len);
+    for (int i = 1; i < len; i++) {
+        if ((s[i] & 0xc0) != 0x80) {
+            *ps += i;
+            return '?';
+        }
+        cp = (cp << 6) | (s[i] & 0x3f);
+    }
+    *ps += len;
+    return cp;
+}
+
+/* The glyph for a character: ASCII directly, others from the font's sorted
+ * extra table; '?' if the font does not have it. */
+const struct glyph *gfx_glyph_of(const struct font *f, unsigned cp)
+{
+    if (cp >= 32 && cp < 127)
+        return &f->glyphs[cp - 32];
+    int lo = 0, hi = f->nextra - 1;
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        if (f->extra_cp[mid] == cp)
+            return &f->extra[mid];
+        if (f->extra_cp[mid] < cp)
+            lo = mid + 1;
+        else
+            hi = mid - 1;
+    }
+    return &f->glyphs['?' - 32];
+}
+
+int gfx_glyph(const struct font *f, int x, int y, unsigned cp, uint32_t c, int a)
+{
+    const struct glyph *g = gfx_glyph_of(f, cp);
+    if (g->w && x < cx1)
+        draw_glyph(f, g, x, y, c, a256(a));
+    return g->adv;
+}
+
 int gfx_text_width(const struct font *f, const char *s)
 {
     int w = 0;
-    for (; *s; s++) {
-        unsigned ch = (unsigned char)*s;
-        if (ch < 32 || ch > 126)
-            ch = '?';
-        w += f->glyphs[ch - 32].adv;
-    }
+    while (*s)
+        w += gfx_glyph_of(f, gfx_utf8_next(&s))->adv;
     return w;
 }
 
@@ -384,11 +431,8 @@ int gfx_text(const struct font *f, int x, int y, const char *s, uint32_t c, int 
     int x0 = x;
     if (x < cx1 && y < cy1 && *s)
         log_text(x, y, s);
-    for (; *s; s++) {
-        unsigned ch = (unsigned char)*s;
-        if (ch < 32 || ch > 126)
-            ch = '?';
-        const struct glyph *g = &f->glyphs[ch - 32];
+    while (*s) {
+        const struct glyph *g = gfx_glyph_of(f, gfx_utf8_next(&s));
         if (g->w && x < cx1)
             draw_glyph(f, g, x, y, c, al);
         x += g->adv;
@@ -414,13 +458,13 @@ void gfx_text_fit(const struct font *f, int x, int y, int maxw, const char *s, u
     }
     char buf[160];
     int dots = gfx_text_width(f, "..."), n = 0, w = 0;
-    while (s[n] && n < (int)sizeof buf - 4) {
-        unsigned ch = (unsigned char)s[n];
-        int adv = f->glyphs[(ch < 32 || ch > 126 ? '?' : ch) - 32].adv;
+    while (s[n] && n < (int)sizeof buf - 8) {
+        const char *p = s + n;
+        int adv = gfx_glyph_of(f, gfx_utf8_next(&p))->adv;
         if (w + adv + dots > maxw)
             break;
         w += adv;
-        n++;
+        n = (int)(p - s);
     }
     k_memcpy(buf, s, n);
     k_strlcpy(buf + n, "...", 4);

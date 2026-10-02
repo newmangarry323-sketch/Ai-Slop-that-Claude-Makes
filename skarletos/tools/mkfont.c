@@ -24,17 +24,47 @@ struct spec {
     const char *file;  /* TTF file in the font directory */
     int px;            /* pixel size */
     const char *chars; /* characters to include (NULL = printable ASCII) */
+    const unsigned *extra; /* Unicode ranges beyond ASCII, as {first, last} pairs, 0-ended */
+};
+
+/* Beyond ASCII: accented Latin letters and symbols (Latin-1), dashes,
+ * quotes, the euro sign and arrows, for window titles and file names... */
+static const unsigned text_extra[] = {
+    0xa0, 0xff, 0x2010, 0x2027, 0x2030, 0x2030, 0x2039, 0x203a, 0x20ac, 0x20ac,
+    0x2122, 0x2122, 0x2190, 0x2193, 0x2212, 0x2212, 0,
+};
+/* ...and for the terminal also box drawing, blocks and common symbols,
+ * which programs like apt, nano and htop print. */
+static const unsigned mono_extra[] = {
+    0xa0, 0xff, 0x2010, 0x2027, 0x2030, 0x2030, 0x2039, 0x203a, 0x20ac, 0x20ac,
+    0x2122, 0x2122, 0x2190, 0x2193, 0x2212, 0x2212, 0x2500, 0x259f, 0x25a0, 0x25a0,
+    0x25aa, 0x25aa, 0x25b2, 0x25b2, 0x25b6, 0x25b6, 0x25ba, 0x25ba, 0x25bc, 0x25bc,
+    0x25c0, 0x25c0, 0x25c4, 0x25c4, 0x25cf, 0x25cf, 0x2713, 0x2714, 0x2717, 0x2718, 0,
 };
 
 static const struct spec specs[] = {
-    { "font_ui", "DejaVuSans.ttf", 15, NULL },
-    { "font_ui_bold", "DejaVuSans-Bold.ttf", 15, NULL },
-    { "font_small", "DejaVuSans.ttf", 12, NULL },
-    { "font_title", "DejaVuSans-Bold.ttf", 22, NULL },
-    { "font_mono", "DejaVuSansMono.ttf", 15, NULL },
-    { "font_big", "DejaVuSans.ttf", 56, " 0123456789:" },
-    { "font_huge", "DejaVuSans.ttf", 96, " 0123456789:" },
+    { "font_ui", "DejaVuSans.ttf", 15, NULL, text_extra },
+    { "font_ui_bold", "DejaVuSans-Bold.ttf", 15, NULL, text_extra },
+    { "font_small", "DejaVuSans.ttf", 12, NULL, text_extra },
+    { "font_title", "DejaVuSans-Bold.ttf", 22, NULL, text_extra },
+    { "font_mono", "DejaVuSansMono.ttf", 15, NULL, mono_extra },
+    { "font_big", "DejaVuSans.ttf", 56, " 0123456789:", NULL },
+    { "font_huge", "DejaVuSans.ttf", 96, " 0123456789:", NULL },
 };
+
+/* Write one rendered glyph's coverage bytes; returns how many. */
+static unsigned emit_bitmap(FT_GlyphSlot g, int *col)
+{
+    unsigned n = 0;
+    for (unsigned y = 0; y < g->bitmap.rows; y++)
+        for (unsigned x = 0; x < g->bitmap.width; x++) {
+            if ((*col)++ % 24 == 0)
+                printf("\n   ");
+            printf(" %u,", g->bitmap.buffer[y * g->bitmap.pitch + x]);
+            n++;
+        }
+    return n;
+}
 
 int main(int argc, char **argv)
 {
@@ -66,6 +96,7 @@ int main(int argc, char **argv)
         /* Pass 1: the coverage bytes. */
         printf("static const unsigned char %s_bits[] = {", sp->name);
         unsigned offsets[128] = { 0 }, total = 0;
+        (void)0;
         int widths[128], heights[128], xoffs[128], yoffs[128], advs[128];
         memset(widths, 0, sizeof widths);
         int col = 0;
@@ -85,17 +116,42 @@ int main(int argc, char **argv)
             yoffs[c] = g->bitmap_top;
             advs[c] = (int)((g->advance.x + 32) >> 6);
             offsets[c] = total;
-            for (int y = 0; y < heights[c]; y++)
-                for (int x = 0; x < widths[c]; x++) {
-                    if (col++ % 24 == 0)
-                        printf("\n   ");
-                    printf(" %u,", g->bitmap.buffer[y * g->bitmap.pitch + x]);
-                    total++;
-                }
+            total += emit_bitmap(g, &col);
         }
+        /* The extra characters, after ASCII, in code point order. */
+        static unsigned ecp[1024];
+        static int ew[1024], eh[1024], ex[1024], ey[1024], ea[1024];
+        static unsigned eoff[1024];
+        int nextra = 0;
+        for (const unsigned *r = sp->extra; r && r[0]; r += 2)
+            for (unsigned cp = r[0]; cp <= r[1] && nextra < 1024; cp++) {
+                if (!FT_Get_Char_Index(face, cp) ||
+                    FT_Load_Char(face, cp, FT_LOAD_RENDER | FT_LOAD_TARGET_LIGHT))
+                    continue; /* the font does not have it */
+                FT_GlyphSlot g = face->glyph;
+                ecp[nextra] = cp;
+                ew[nextra] = (int)g->bitmap.width;
+                eh[nextra] = (int)g->bitmap.rows;
+                ex[nextra] = g->bitmap_left;
+                ey[nextra] = g->bitmap_top;
+                ea[nextra] = (int)((g->advance.x + 32) >> 6);
+                eoff[nextra] = total;
+                total += emit_bitmap(g, &col);
+                nextra++;
+            }
         if (total == 0)
             printf(" 0");
         printf("\n};\n\n");
+        if (nextra) {
+            printf("static const unsigned short %s_extra_cp[%d] = {", sp->name, nextra);
+            for (int i = 0; i < nextra; i++)
+                printf("%s0x%x,", i % 12 ? " " : "\n    ", ecp[i]);
+            printf("\n};\n\nstatic const struct glyph %s_extra[%d] = {\n", sp->name, nextra);
+            for (int i = 0; i < nextra; i++)
+                printf("    { %d, %d, %d, %d, %d, %u }, /* U+%04X */\n", ew[i], eh[i], ex[i], ey[i],
+                       ea[i], eoff[i], ecp[i]);
+            printf("};\n\n");
+        }
 
         /* Pass 2: per-glyph metrics. */
         printf("static const struct glyph %s_glyphs[95] = {\n", sp->name);
@@ -107,8 +163,13 @@ int main(int argc, char **argv)
         int ascent = (int)((face->size->metrics.ascender + 63) >> 6);
         int descent = (int)((-face->size->metrics.descender + 63) >> 6);
         int line = (int)((face->size->metrics.height + 63) >> 6);
-        printf("const struct font %s = { %d, %d, %d, %d, %s_glyphs, %s_bits };\n\n", sp->name,
-               sp->px, ascent, descent, line, sp->name, sp->name);
+        printf("const struct font %s = { %d, %d, %d, %d, %s_glyphs, %s_bits", sp->name, sp->px,
+               ascent, descent, line, sp->name, sp->name);
+        if (nextra)
+            printf(", %d, %s_extra_cp, %s_extra", nextra, sp->name, sp->name);
+        else
+            printf(", 0, 0, 0");
+        printf(" };\n\n");
         FT_Done_Face(face);
     }
     FT_Done_FreeType(lib);

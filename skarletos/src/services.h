@@ -10,6 +10,10 @@
 
 /* Apps that can be launched. The ids double as shell command names. */
 enum app_id { APP_TERMINAL, APP_FILES, APP_WRITE, APP_SETTINGS, APP_MONITOR, APP_COUNT };
+/* Windows of other programs (wm_open_external) use this pseudo-app; it is
+ * not listed in the launcher. g_apps and g_app_impl have APP_SLOTS entries. */
+#define APP_EXTERNAL APP_COUNT
+#define APP_SLOTS (APP_COUNT + 1)
 
 struct app_info {
     const char *id;      /* "skterm" */
@@ -19,7 +23,7 @@ struct app_info {
     int icon;            /* IC_* icon used in the panel and launcher */
     uint32_t color;      /* its app-icon tile colour */
 };
-extern const struct app_info g_apps[APP_COUNT];
+extern const struct app_info g_apps[APP_SLOTS];
 
 /* Launch an app. arg is app specific: a directory for Skarlet Files, a file for
  * Skarlet Write, a command line to run for Skarlet Terminal. Returns the window pid or -1. */

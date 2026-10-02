@@ -15,6 +15,24 @@
 
 struct workspace g_ws;
 
+/* Empty defaults for the optional platform hooks (see platform.h). */
+__attribute__((weak)) int plat_login(const char *password)
+{
+    (void)password;
+    return 1;
+}
+__attribute__((weak)) const char *plat_login_hint(void)
+{
+    return "Press Enter to log in (any password)";
+}
+__attribute__((weak)) int plat_app_count(void) { return 0; }
+__attribute__((weak)) const struct installed_app *plat_app(int i)
+{
+    (void)i;
+    return 0;
+}
+__attribute__((weak)) void plat_app_start(int i) { (void)i; }
+
 /* ======================================================================== */
 /* Actions: everything a menu entry, launcher entry or runner result can do  */
 /* ======================================================================== */
@@ -23,7 +41,7 @@ enum {
     ACT_NONE, ACT_LAUNCH, ACT_PLACE, ACT_OPENFILE, ACT_RUN, ACT_CALC, ACT_CATEGORY,
     ACT_LOGOUT, ACT_REBOOT, ACT_POWEROFF,
     ACT_STRIP_WIDGETS, ACT_ADDW, ACT_REMOVEW, ACT_STRIP_ACTIVITIES, ACT_SWITCH_ACT,
-    ACT_NEW_ACT, ACT_TOGGLE_LOCK, ACT_HELP,
+    ACT_NEW_ACT, ACT_TOGGLE_LOCK, ACT_HELP, ACT_INSTALLED,
 };
 
 struct item {
@@ -114,7 +132,8 @@ static int popup, strip_kind;
 static char query[40];
 static int qlen;
 static int launch_tab, launch_cat = -1, launch_top;
-static char login_pw[24];
+static char login_pw[64];
+static int login_failed;
 static int recent[5], nrecent;
 static char recent_docs[4][VFS_PATH_MAX];
 static int nrecent_docs;
@@ -150,12 +169,70 @@ void ws_note_document(const char *path)
     nrecent_docs = n;
 }
 
+/* ---- clickable regions and layers ------------------------------------------
+ * While a frame is drawn, each clickable thing records its rectangle; a click
+ * then goes to the top-most rectangle under the pointer.  Recording them in
+ * the drawing code keeps what you see and what you can click in step. */
+
+#define MAX_HITS 200
+static struct {
+    int x, y, w, h, kind, arg;
+} hits[MAX_HITS];
+static int nhits;
+
+#define MAX_LAYERS 8
+static struct layer layers[MAX_LAYERS];
+static int nlayers;
+
+void ws_hit(int x, int y, int w, int h, int kind, int arg)
+{
+    if (nhits >= MAX_HITS)
+        return;
+    hits[nhits].x = x, hits[nhits].y = y, hits[nhits].w = w, hits[nhits].h = h;
+    hits[nhits].kind = kind, hits[nhits].arg = arg;
+    nhits++;
+}
+
+int ws_hit_at(int x, int y, int *arg)
+{
+    for (int i = nhits - 1; i >= 0; i--)
+        if (x >= hits[i].x && x < hits[i].x + hits[i].w && y >= hits[i].y &&
+            y < hits[i].y + hits[i].h) {
+            if (arg)
+                *arg = hits[i].arg;
+            return hits[i].kind;
+        }
+    return HIT_NONE;
+}
+
+static void add_layer(int x, int y, int w, int h, int r)
+{
+    if (nlayers < MAX_LAYERS) {
+        struct layer l = { x, y, w, h, r };
+        layers[nlayers++] = l;
+    }
+}
+
+int ws_layers(struct layer *out, int max)
+{
+    int n = MIN(nlayers, max);
+    for (int i = 0; i < n; i++)
+        out[i] = layers[i];
+    return n;
+}
+
+int ws_popup_open(void) { return popup != POP_NONE; }
+
 /* ---- drawing helpers ------------------------------------------------------ */
 
-/* A floating card: soft shadow, translucent fill, hairline border. */
+/* A floating card: soft shadow, translucent fill, hairline border.  Cards
+ * float above the windows, so each is also a layer; clicks inside one that
+ * hit nothing else are swallowed rather than going to what is behind. */
 static void card(int x, int y, int w, int h, int r)
 {
     const struct theme *t = g_theme;
+    add_layer(x, y, w, h, r);
+    ws_hit(x, y, w, h, HIT_SWALLOW, 0);
     gfx_shadow(x, y + 6, w, h, r, 28, t->shadow_a);
     gfx_rrect(x, y, w, h, r, t->card, t->card_a);
     gfx_rrect_line(x, y, w, h, r, t->border, 160);
@@ -204,6 +281,7 @@ static void draw_toast(void)
     if (popup == POP_STRIP)
         y = PANEL_Y - 12 - SHEET_H - 12 - h;
     card(x, y, w, h, 16);
+    ws_hit(x, y, w, h, HIT_TOAST, 0); /* a click dismisses it */
     gfx_circle(x + 36, y + 36, 20, t->accent, 255);
     gfx_icon(IC_BELL, x + 24, y + 24, 24, WHITE, 255);
     gfx_text_fit(&font_ui_bold, x + 68, y + 18, w - 110, g_ws.toast_title, t->text, 255);
@@ -319,6 +397,9 @@ static void draw_applet_handle(struct plasmoid *p)
     gfx_rrect_line(hx, p->y, 40, 84, 12, t->border, 160);
     gfx_icon(IC_CLOSE, hx + 11, p->y + 12, 18, t->text, 255);
     gfx_icon(IC_GRID, hx + 11, p->y + 50, 18, t->text_dim, 255);
+    int idx = (int)(p - cur_act()->widgets);
+    ws_hit(hx, p->y, 40, 40, HIT_WIDGET_REMOVE, idx);
+    ws_hit(hx, p->y + 40, 40, 44, HIT_WIDGET_MOVE, idx);
 }
 
 static void draw_widgets(void)
@@ -332,6 +413,7 @@ static void draw_widgets(void)
             continue;
         const struct plasmoid_type *pt = &g_plasmoid_types[p->type];
         int focused = desk_focus && a->focus == i;
+        ws_hit(p->x, p->y, p->w, p->h, HIT_WIDGET, i);
         gfx_shadow(p->x, p->y + 4, p->w, p->h, 18, 22, t->shadow_a * 2 / 3);
         if (pt->card)
             gfx_rrect(p->x, p->y, p->w, p->h, 18, pt->card, 250);
@@ -455,6 +537,8 @@ static void draw_panel(void)
 {
     const struct theme *t = g_theme;
     int px = PANEL_MARGIN, py = PANEL_Y, pw = g_w - 2 * PANEL_MARGIN, ph = PANEL_H;
+    add_layer(px, py, pw, ph, 14);
+    ws_hit(px, py, pw, ph, HIT_PANEL, 0);
     gfx_shadow(px, py + 4, pw, ph, 14, 20, t->shadow_a / 2);
     gfx_rrect(px, py, pw, ph, 14, t->panel, t->panel_a);
     gfx_rrect_line(px, py, pw, ph, 14, t->border, 140);
@@ -466,12 +550,14 @@ static void draw_panel(void)
         gfx_rrect(x, py + 4, 40, 40, 10, t->hover, 255);
     gfx_circle(x + 20, cy, 15, t->accent, 255);
     gfx_icon(IC_LOGO, x + 9, cy - 11, 22, WHITE, 255);
+    ws_hit(x, py, 44, ph, HIT_PANEL_LAUNCHER, 0);
     x += 52;
 
     /* Pager: one small box per virtual desktop. */
     for (int d = 0; d < 4; d++) {
         char num[2] = { (char)('1' + d), 0 };
         int bx = x + d * 30;
+        ws_hit(bx, py + 6, 28, ph - 12, HIT_PANEL_DESK, d);
         if (d == g_ws.desk) {
             gfx_rrect(bx, cy - 11, 26, 22, 6, t->accent, 255);
             gfx_text_center(&font_small, bx, cy - 8, 26, num, WHITE, 255);
@@ -486,9 +572,10 @@ static void draw_panel(void)
     x += 12;
 
     /* Task manager: icon-only buttons with a running indicator underneath,
-     * wider and in the accent colour for the active window. */
+     * wider and in the accent colour for the active window.  Minimized
+     * windows keep their button, drawn faded. */
     struct window *vis[MAX_WIN];
-    int n = wm_list_visible(vis, MAX_WIN);
+    int n = wm_list_desk(vis, MAX_WIN);
     struct window *focused = wm_focused();
     for (int i = 1; i < n; i++) /* stable order: by pid, not stacking order */
         for (int j = i; j > 0 && vis[j]->pid < vis[j - 1]->pid; j--) {
@@ -496,11 +583,17 @@ static void draw_panel(void)
             vis[j] = vis[j - 1];
             vis[j - 1] = tmp;
         }
+    n = MIN(n, (px + pw - 560 - x) / 48); /* leave room for the tray and clock */
     for (int i = 0; i < n; i++) {
         int bx = x + i * 48;
         if (vis[i] == focused)
             gfx_rrect(bx, py + 4, 44, 40, 10, t->hover, 255);
-        gfx_app_icon(g_apps[vis[i]->app].icon, bx + 8, py + 8, 28, g_apps[vis[i]->app].color);
+        struct window *tw = vis[i];
+        gfx_app_icon(tw->ext_icon ? tw->ext_icon : g_apps[tw->app].icon, bx + 8, py + 8, 28,
+                     tw->ext_color ? tw->ext_color : g_apps[tw->app].color);
+        if (vis[i]->minimized)
+            gfx_rrect(bx + 8, py + 8, 28, 28, 7, t->panel, 140);
+        ws_hit(bx, py + 4, 44, 40, HIT_PANEL_TASK, vis[i]->pid);
         if (vis[i] == focused)
             gfx_rrect(bx + 12, py + ph - 6, 20, 3, 1, t->accent_hi, 255);
         else
@@ -510,6 +603,7 @@ static void draw_panel(void)
     /* Right side, from the edge inwards: show desktop, clock, system tray. */
     int rx = px + pw - 8;
     rx -= 36;
+    ws_hit(rx, py + 6, 36, 36, HIT_PANEL_SHOWDESK, 0);
     if (g_ws.dashboard)
         gfx_rrect(rx, py + 6, 36, 36, 10, t->accent, 255);
     gfx_icon(IC_DESKTOP, rx + 8, cy - 10, 20, g_ws.dashboard ? WHITE : t->text_dim, 255);
@@ -540,17 +634,50 @@ static void draw_panel(void)
 static const char *const launch_tabs[] = { "Favorites", "Applications", "Places",
                                            "Recently Used", "Power" };
 static const int launch_tab_icons[] = { IC_STAR, IC_GRID, IC_HOME, IC_RECENT, IC_POWER };
-static const char *const launch_cats[] = { "System", "Utilities", "Settings" };
+/* Application categories, after the freedesktop.org menu specification
+ * (its "Accessories" is "Utilities" here): System first, where SkarletOS's
+ * own apps are, then the rest alphabetically.  Empty ones are not shown. */
+static const char *const launch_cats[] = {
+    "System", "Development", "Education", "Games", "Graphics", "Internet", "Multimedia",
+    "Office", "Science", "Settings", "Utilities",
+};
+
+static int category_count(int c)
+{
+    int count = 0;
+    for (int a = 0; a < APP_COUNT; a++)
+        count += k_strcmp(g_apps[a].category, launch_cats[c]) == 0;
+    for (int i = 0; i < plat_app_count(); i++)
+        count += k_strcmp(plat_app(i)->category, launch_cats[c]) == 0;
+    return count;
+}
 static const struct { const char *name, *path; int icon; } launch_places[] = {
     { "Home", "/home/user", IC_HOME }, { "Desktop", "/home/user/Desktop", IC_DESKTOP },
     { "Documents", "/home/user/Documents", IC_FILE }, { "Music", "/home/user/Music", IC_MUSIC },
     { "Root", "/", IC_DRIVE }, { "Temp", "/tmp", IC_RECENT },
 };
 
+/* Built-in apps have ids below INSTALLED; installed programs are
+ * INSTALLED + their index in plat_app(). */
+#define INSTALLED 1000
+
 static void add_app_item(int app)
 {
+    if (app >= INSTALLED) {
+        const struct installed_app *ia = plat_app(app - INSTALLED);
+        if (ia)
+            set_icon(add_item(ia->name, ia->comment, ACT_INSTALLED, app - INSTALLED, 0), ia->icon,
+                     ia->color);
+        return;
+    }
     set_icon(add_item(g_apps[app].name, g_apps[app].generic, ACT_LAUNCH, app, 0), g_apps[app].icon,
              g_apps[app].color);
+}
+
+static int installed_matches(const struct installed_app *ia, const char *q)
+{
+    return k_strcasestr(ia->name, q) || k_strcasestr(ia->comment, q) ||
+           k_strcasestr(ia->category, q);
 }
 
 static void add_place_item(int i)
@@ -590,6 +717,9 @@ static void launcher_build(void)
             if (k_strcasestr(g_apps[a].name, query) || k_strcasestr(g_apps[a].generic, query) ||
                 k_strcasestr(g_apps[a].id, query))
                 add_app_item(a);
+        for (int i = 0; i < plat_app_count(); i++)
+            if (installed_matches(plat_app(i), query))
+                add_app_item(INSTALLED + i);
         end_section(h);
         h = nitems;
         add_header("Places");
@@ -602,6 +732,9 @@ static void launcher_build(void)
         add_leave_items(query);
         end_section(h);
     } else if (launch_tab == 0) {
+        for (int i = 0; i < plat_app_count(); i++)
+            if (plat_app(i)->favorite)
+                add_app_item(INSTALLED + i);
         add_app_item(APP_TERMINAL);
         add_app_item(APP_FILES);
         add_app_item(APP_WRITE);
@@ -610,9 +743,9 @@ static void launcher_build(void)
         if (launch_cat < 0) {
             /* Top level: the categories, which open like folders. */
             for (int c = 0; c < ARRAY_LEN(launch_cats); c++) {
-                int count = 0;
-                for (int a = 0; a < APP_COUNT; a++)
-                    count += k_strcmp(g_apps[a].category, launch_cats[c]) == 0;
+                int count = category_count(c);
+                if (count == 0)
+                    continue;
                 char hint[32];
                 k_snprintf(hint, sizeof hint, "%d application%s", count, count == 1 ? "" : "s");
                 set_icon(add_item(launch_cats[c], hint, ACT_CATEGORY, c, 0), IC_GRID,
@@ -622,6 +755,9 @@ static void launcher_build(void)
             for (int a = 0; a < APP_COUNT; a++)
                 if (k_strcmp(g_apps[a].category, launch_cats[launch_cat]) == 0)
                     add_app_item(a);
+            for (int i = 0; i < plat_app_count(); i++)
+                if (k_strcmp(plat_app(i)->category, launch_cats[launch_cat]) == 0)
+                    add_app_item(INSTALLED + i);
         }
     } else if (launch_tab == 2) {
         add_header("Applications");
@@ -687,6 +823,7 @@ static void draw_launcher(void)
         int ry = y + 92 + i * 44, on = i == launch_tab && qlen == 0;
         if (on)
             gfx_rrect(x + 12, ry, sbw - 20, 38, 10, t->accent, 255);
+        ws_hit(x + 12, ry, sbw - 20, 38, HIT_TAB, i);
         gfx_icon(launch_tab_icons[i], x + 26, ry + 9, 20, on ? WHITE : t->accent_hi, 255);
         gfx_text(&font_ui, x + 58, ry + 10, launch_tabs[i], on ? WHITE : t->text, 255);
     }
@@ -699,6 +836,7 @@ static void draw_launcher(void)
         char crumb[48];
         k_snprintf(crumb, sizeof crumb, "All Applications  /  %s", launch_cats[launch_cat]);
         gfx_text(&font_ui_bold, cx + 28, top + 7, crumb, t->text, 255);
+        ws_hit(cx, top, cw, 32, HIT_CRUMB, 0);
         top += 36;
         avail -= 36;
     }
@@ -724,6 +862,7 @@ static void draw_launcher(void)
             gfx_text(&font_small, cx + 12, ry + 12, it->label, t->text_dim, 255);
         } else {
             int on = i == sel;
+            ws_hit(cx, ry + 2, cw, LAUNCH_ROW - 4, HIT_ITEM, i);
             if (on)
                 gfx_rrect(cx, ry + 2, cw, LAUNCH_ROW - 4, 12, t->accent, 255);
             item_icon(it, cx + 10, ry + 9, 36, on);
@@ -769,6 +908,10 @@ static void runner_build(void)
             k_strcasestr(g_apps[a].generic, query))
             set_icon(add_item(g_apps[a].name, "Launch application", ACT_LAUNCH, a, 0),
                      g_apps[a].icon, g_apps[a].color);
+    for (int i = 0; i < plat_app_count() && nitems < MAX_ITEMS - 3; i++)
+        if (installed_matches(plat_app(i), query))
+            set_icon(add_item(plat_app(i)->name, "Launch application", ACT_INSTALLED, i, 0),
+                     plat_app(i)->icon, plat_app(i)->color);
     /* Places runner: anything that looks like a path. */
     int node = vfs_lookup(VFS_ROOT, query);
     if ((query[0] == '/' || query[0] == '~') && node >= 0) {
@@ -805,6 +948,7 @@ static void draw_runner(void)
         gfx_text(&font_title, x + 72, y + 18, "Search", t->text_dim, 160);
     }
     gfx_icon(IC_CLOSE, x + w - 40, y + 22, 18, t->text_dim, 255);
+    ws_hit(x + w - 52, y + 10, 42, 42, HIT_CLOSE_POPUP, 0);
     if (!rows) {
         gfx_text(&font_small, x + 64, y + 62, "Apps, places like /etc, maths like 6*7, commands",
                  t->text_dim, 255);
@@ -812,8 +956,10 @@ static void draw_runner(void)
     }
     gfx_rect(x + 16, y + 64, w - 32, 1, t->divider, 255);
     for (int r = 0; r < rows; r++) {
-        struct item *it = &items[r + (sel >= rows ? sel - rows + 1 : 0)];
+        int idx = r + (sel >= rows ? sel - rows + 1 : 0);
+        struct item *it = &items[idx];
         int on = it == &items[sel], ry = y + 72 + r * 52;
+        ws_hit(x + 10, ry, w - 20, 48, HIT_ITEM, idx);
         if (on)
             gfx_rrect(x + 10, ry, w - 20, 48, 12, t->accent, 255);
         item_icon(it, x + 22, ry + 8, 32, on);
@@ -860,6 +1006,7 @@ static void draw_menu(void)
     for (int i = 0; i < nitems; i++) {
         struct item *it = &items[i];
         int ry = y + 44 + i * 42, on = i == sel;
+        ws_hit(x + 8, ry, w - 16, 38, HIT_ITEM, i);
         if (on)
             gfx_rrect(x + 8, ry, w - 16, 38, 10, t->accent, 255);
         uint32_t c = on ? WHITE : it->disabled ? t->text_dim : t->text;
@@ -929,6 +1076,7 @@ static void draw_strip(void)
             gfx_text(&font_ui, sx + 36, y + 24, "Search:", t->text_dim, 255);
     }
     gfx_icon(IC_CLOSE, x + w - 40, y + 22, 18, t->text_dim, 255);
+    ws_hit(x + w - 52, y + 10, 42, 42, HIT_CLOSE_POPUP, 0);
     if (nitems > 0)
         gfx_text_fit(&font_ui, x + 24, y + 58, w - 48, items[sel].hint, t->text_dim, 255);
     else
@@ -939,6 +1087,7 @@ static void draw_strip(void)
     for (int i = 0; i < visible && first + i < nitems; i++) {
         struct item *it = &items[first + i];
         int on = first + i == sel, tx = x + 24 + i * (TILE_W + 16), ty = y + 86;
+        ws_hit(tx, ty, TILE_W, TILE_H, HIT_ITEM, first + i);
         gfx_rrect(tx, ty, TILE_W, TILE_H, 14, on ? gfx_mix(t->input, t->accent, 70) : t->input, 255);
         if (on) {
             gfx_rrect_line(tx, ty, TILE_W, TILE_H, 14, t->accent_hi, 255);
@@ -1042,6 +1191,10 @@ static void run_item(struct item *it)
         remember_recent(arg);
         svc_launch(arg, 0);
         break;
+    case ACT_INSTALLED:
+        remember_recent(INSTALLED + arg);
+        plat_app_start(arg);
+        break;
     case ACT_PLACE: svc_launch(APP_FILES, str); break;
     case ACT_OPENFILE: svc_launch(APP_WRITE, str); break;
     case ACT_RUN: svc_launch(APP_TERMINAL, str); break;
@@ -1095,6 +1248,21 @@ static void run_item(struct item *it)
 /* Key routing                                                               */
 /* ======================================================================== */
 
+/* Enter (or a click) on the selected entry of the launcher, runner or menu. */
+static void activate_sel(void)
+{
+    if (sel >= nitems)
+        return;
+    if (popup == POP_LAUNCHER && items[sel].act == ACT_CATEGORY) {
+        launch_cat = items[sel].arg;
+        launch_top = 0;
+        launcher_build();
+        sel_first();
+        return;
+    }
+    run_item(&items[sel]);
+}
+
 static void popup_key(struct key k)
 {
     if (popup == POP_STRIP) {
@@ -1110,16 +1278,7 @@ static void popup_key(struct key k)
         return;
     }
     if (k.code == K_ENTER) {
-        if (sel < nitems) {
-            if (popup == POP_LAUNCHER && items[sel].act == ACT_CATEGORY) {
-                launch_cat = items[sel].arg;
-                launch_top = 0;
-                launcher_build();
-                sel_first();
-                return;
-            }
-            run_item(&items[sel]);
-        }
+        activate_sel();
         return;
     }
     if (popup == POP_MENU)
@@ -1168,6 +1327,19 @@ static void open_popup(int which)
         launcher_build();
     else if (which == POP_RUNNER)
         runner_build();
+}
+
+static void log_in(void)
+{
+    if (!plat_login(login_pw)) {
+        login_failed = 1;
+        login_pw[0] = 0;
+        return;
+    }
+    login_failed = 0;
+    k_memset(login_pw, 0, sizeof login_pw);
+    g_ws.phase = PHASE_DESKTOP;
+    svc_notify("Welcome", "Alt+F1 opens the launcher, Alt+F2 Skarlet Runner.");
 }
 
 static int global_shortcut(struct key k)
@@ -1220,11 +1392,11 @@ void ws_key(struct key k)
     if (g_ws.phase == PHASE_LOGIN) {
         int len = k_strlen(login_pw);
         if (k.code == K_ENTER) {
-            g_ws.phase = PHASE_DESKTOP;
-            svc_notify("Welcome", "Alt+F1 opens the launcher, Alt+F2 Skarlet Runner.");
+            log_in();
         } else if (k.code == K_BACKSPACE && len > 0) {
             login_pw[len - 1] = 0;
         } else if (k.code >= 32 && k.code < 127 && len < (int)sizeof login_pw - 1) {
+            login_failed = 0;
             login_pw[len] = (char)k.code;
             login_pw[len + 1] = 0;
         }
@@ -1255,6 +1427,209 @@ void ws_key(struct key k)
         g_app_impl[w->app]->key(w, k);
     else
         desktop_key(k);
+}
+
+/* ======================================================================== */
+/* The mouse                                                                 */
+/* ======================================================================== */
+
+/* What a held button is doing: moving or resizing a window, moving a widget. */
+static struct {
+    int kind; /* HIT_WIN_TITLE, HIT_WIN_RESIZE, HIT_WIDGET_MOVE or 0 */
+    int arg;  /* window pid or widget index */
+    int ox, oy, ow, oh, px, py;
+} drag;
+
+static int is_popup_hit(int kind)
+{
+    return kind == HIT_SWALLOW || kind == HIT_ITEM || kind == HIT_TAB || kind == HIT_CRUMB ||
+           kind == HIT_CLOSE_POPUP;
+}
+
+static void drag_move(struct mouse m)
+{
+    int dx = m.x - drag.px, dy = m.y - drag.py;
+    if (drag.kind == HIT_WIDGET_MOVE) {
+        struct plasmoid *p = &cur_act()->widgets[drag.arg];
+        p->x = MAX(0, MIN(drag.ox + dx, g_w - p->w));
+        p->y = MAX(0, MIN(drag.oy + dy, DESK_BOTTOM - p->h));
+        return;
+    }
+    struct window *w = wm_by_pid(drag.arg);
+    if (!w) {
+        drag.kind = 0;
+        return;
+    }
+    if (drag.kind == HIT_WIN_TITLE) {
+        if (w->maximized) {
+            /* Dragging a maximized window restores its size under the pointer. */
+            wm_toggle_maximize(w);
+            drag.ox = m.x - w->w / 2;
+            drag.oy = 0;
+            drag.px = m.x, drag.py = m.y;
+            dx = dy = 0;
+        }
+        w->x = MAX(-w->w + 120, MIN(drag.ox + dx, g_w - 120));
+        w->y = MAX(0, MIN(drag.oy + dy, DESK_BOTTOM - TITLE_H));
+    } else if (drag.kind == HIT_WIN_RESIZE) {
+        w->w = MAX(240, MIN(drag.ow + dx, g_w - w->x));
+        w->h = MAX(TITLE_H + 120, MIN(drag.oh + dy, DESK_BOTTOM - w->y));
+    }
+}
+
+static void start_drag(int kind, int arg, int ox, int oy, int ow, int oh, struct mouse m)
+{
+    drag.kind = kind, drag.arg = arg;
+    drag.ox = ox, drag.oy = oy, drag.ow = ow, drag.oh = oh;
+    drag.px = m.x, drag.py = m.y;
+}
+
+static void window_click(int kind, struct window *w, struct mouse m)
+{
+    if (!w)
+        return;
+    wm_activate(w);
+    if (kind == HIT_WIN_CLOSE) {
+        wm_close(w);
+    } else if (kind == HIT_WIN_MAX) {
+        wm_toggle_maximize(w);
+    } else if (kind == HIT_WIN_MIN) {
+        wm_minimize(w);
+    } else if (kind == HIT_WIN_TITLE) {
+        if (m.clicks >= 2)
+            wm_toggle_maximize(w);
+        else
+            start_drag(kind, w->pid, w->x, w->y, w->w, w->h, m);
+    } else if (kind == HIT_WIN_RESIZE) {
+        start_drag(kind, w->pid, w->x, w->y, w->w, w->h, m);
+    } else if (kind == HIT_WIN_CLIENT) {
+        int cx, cy, cw, ch;
+        wm_client_rect(w, &cx, &cy, &cw, &ch);
+        const struct app *impl = g_app_impl[w->app];
+        if (impl->mouse && m.x >= cx && m.y >= cy && m.x < cx + cw && m.y < cy + ch) {
+            struct mouse rel = m;
+            rel.x -= cx, rel.y -= cy;
+            impl->mouse(w, rel, cw, ch);
+        }
+    }
+}
+
+static void popup_click(int kind, int arg, struct mouse m)
+{
+    if (kind == HIT_CLOSE_POPUP) {
+        close_popup();
+    } else if (kind == HIT_TAB) {
+        qlen = 0;
+        query[0] = 0;
+        launch_tab = arg;
+        launch_cat = -1;
+        launch_top = 0;
+        launcher_build();
+        sel_first();
+    } else if (kind == HIT_CRUMB) {
+        launch_cat = -1;
+        launch_top = 0;
+        launcher_build();
+        sel_first();
+    } else if (kind == HIT_ITEM && arg < nitems && !items[arg].header) {
+        /* Sheets pick a tile with one click and use it with a second (or a
+         * double click); lists act at once, like Plasma's launcher. */
+        int again = sel == arg || m.clicks >= 2;
+        sel = arg;
+        if (popup != POP_STRIP || again)
+            activate_sel();
+    }
+}
+
+void ws_mouse(struct mouse m)
+{
+    if (g_ws.phase == PHASE_OFF)
+        return;
+    if (m.type == MOUSE_MOVE) {
+        if (drag.kind) {
+            drag_move(m);
+            g_ws.need_redraw = 1;
+        }
+        return;
+    }
+    if (m.type == MOUSE_UP) {
+        drag.kind = 0;
+        return;
+    }
+    int arg = 0, kind = ws_hit_at(m.x, m.y, &arg);
+    g_ws.need_redraw = 1;
+    if (g_ws.phase == PHASE_LOGIN) {
+        if (m.type == MOUSE_DOWN && kind == HIT_LOGIN)
+            log_in();
+        return;
+    }
+    if (m.type == MOUSE_WHEEL) {
+        int up = m.button == 4;
+        if (popup != POP_NONE && is_popup_hit(kind)) {
+            if (popup == POP_STRIP)
+                sel = up ? MAX(sel - 1, 0) : MIN(sel + 1, MAX(nitems - 1, 0));
+            else
+                sel_move(up ? -1 : 1);
+        } else if (kind >= HIT_WIN_TITLE && kind <= HIT_WIN_RESIZE) {
+            struct window *w = wm_by_pid(arg);
+            if (w && kind == HIT_WIN_CLIENT)
+                window_click(kind, w, m);
+        } else if (kind == HIT_PANEL_DESK || kind == HIT_PANEL || kind == HIT_PANEL_LAUNCHER) {
+            close_popup();
+            g_ws.desk = (g_ws.desk + (up ? NUM_DESKS - 1 : 1)) % NUM_DESKS;
+        }
+        return;
+    }
+    if (m.button != 1 && !(kind == HIT_WIN_CLIENT && m.button == 3))
+        return;
+
+    /* A click outside an open popup closes it (the launcher button toggles). */
+    if (popup != POP_NONE && !is_popup_hit(kind) && kind != HIT_PANEL_LAUNCHER) {
+        close_popup();
+        return;
+    }
+    struct activity *a = cur_act();
+    switch (kind) {
+    case HIT_ITEM: case HIT_TAB: case HIT_CRUMB: case HIT_CLOSE_POPUP:
+        popup_click(kind, arg, m);
+        break;
+    case HIT_PANEL_LAUNCHER: open_popup(POP_LAUNCHER); break;
+    case HIT_PANEL_DESK:
+        g_ws.desk = arg;
+        g_ws.move_mode = 0;
+        break;
+    case HIT_PANEL_TASK: {
+        struct window *w = wm_by_pid(arg);
+        if (w && w == wm_focused())
+            wm_minimize(w);
+        else
+            wm_activate(w);
+        break;
+    }
+    case HIT_PANEL_SHOWDESK: g_ws.dashboard ^= 1; break;
+    case HIT_TOAST: g_ws.toast_until = 0; break;
+    case HIT_WIN_TITLE: case HIT_WIN_CLOSE: case HIT_WIN_MAX: case HIT_WIN_MIN:
+    case HIT_WIN_CLIENT: case HIT_WIN_RESIZE:
+        window_click(kind, wm_by_pid(arg), m);
+        break;
+    case HIT_WIDGET:
+        a->focus = arg;
+        break;
+    case HIT_WIDGET_REMOVE:
+        a->focus = arg;
+        desktop_key((struct key){ K_DELETE, 0 });
+        break;
+    case HIT_WIDGET_MOVE:
+        a->focus = arg;
+        if (g_ws.locked)
+            svc_notify("SkarletOS", "Widgets are locked. Unlock them from the desktop menu (Alt+F12).");
+        else
+            start_drag(kind, arg, a->widgets[arg].x, a->widgets[arg].y, 0, 0, m);
+        break;
+    case HIT_NONE:
+        a->focus = -1; /* a click on the bare desktop */
+        break;
+    }
 }
 
 /* ======================================================================== */
@@ -1296,9 +1671,11 @@ static void draw_login(void)
         gfx_text(&font_ui, fx + 22, fy + 13, "Password", WHITE, 150);
     for (int i = 0; i < n && i < 20; i++)
         gfx_circle(fx + 26 + i * 16, fy + 22, 5, WHITE, 255);
+    ws_hit(fx + fw - 40, fy + 4, 36, 36, HIT_LOGIN, 0);
     gfx_circle(fx + fw - 22, fy + 22, 16, t->accent, 255);
     gfx_icon(IC_CHEVRON_R, fx + fw - 33, fy + 11, 22, WHITE, 255);
-    gfx_text_center(&font_ui, 0, fy + 62, g_w, "Press Enter to log in (any password)", WHITE, 170);
+    gfx_text_center(&font_ui, 0, fy + 62, g_w, login_failed ? "Wrong password, try again" :
+                    plat_login_hint(), WHITE, 170);
 
     gfx_text_center(&font_ui_bold, 0, g_h - 70, g_w, "Welcome to SkarletOS", WHITE, 230);
     gfx_text_center(&font_small, 0, g_h - 46, g_w, "x86-64  |  inspired by KDE Plasma", WHITE,
@@ -1323,6 +1700,8 @@ void ws_draw(void)
 {
     gfx_noclip();
     gfx_textlog_reset();
+    nhits = 0;
+    nlayers = 0;
     if (g_ws.phase == PHASE_OFF) {
         draw_off();
         return;
@@ -1340,6 +1719,7 @@ void ws_draw(void)
     if (g_ws.move_mode) {
         const char *msg = "Moving window: arrow keys, Enter to finish";
         int w = gfx_text_width(&font_ui_bold, msg) + 40;
+        add_layer((g_w - w) / 2, 16, w, 36, 18);
         gfx_rrect((g_w - w) / 2, 16, w, 36, 18, g_theme->accent, 255);
         gfx_text_center(&font_ui_bold, (g_w - w) / 2, 25, w, msg, WHITE, 255);
     }

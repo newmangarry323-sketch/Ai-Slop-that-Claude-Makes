@@ -1,0 +1,26 @@
+#!/bin/sh
+# skarlet-start - set up the screen and start the SkarletOS desktop.
+#
+# SkarletOS is designed for 1918 x 1075.  VMware's graphics (the "vmwgfx"
+# driver) can show exactly that.  Other graphics often need a width that is
+# a multiple of 8 (QEMU's standard VGA does: asked for 1918 it shows 1912
+# pixels per row of a 1918-pixel picture, and the image slants), so there
+# we use 1912 x 1075.  The numbers after the name are a "modeline" (pixel
+# clock and timings), which virtual graphics cards accept as given.
+driver=$(basename "$(readlink -f /sys/class/drm/card0/device/driver 2>/dev/null)" 2>/dev/null)
+case "$driver" in
+vmwgfx) w=1918 ;;
+*) w=1912 ;;
+esac
+mode="${w}x1075"
+out=$(xrandr 2>/dev/null | awk '/ connected/ { print $1; exit }')
+if [ -n "$out" ]; then
+    if ! xrandr 2>/dev/null | grep -q "^ *$mode "; then
+        xrandr --newmode "$mode" 173.00 "$w" 2040 2240 2560 1075 1078 1088 1120 -hsync +vsync
+        xrandr --addmode "$out" "$mode"
+    fi
+    xrandr --output "$out" --mode "$mode" || echo "skarlet-start: $mode not possible here"
+fi
+echo "skarlet-start: graphics driver ${driver:-unknown}, mode $mode"
+xset s off -dpms 2>/dev/null   # no screen blanking
+exec /usr/local/bin/skarlet-session

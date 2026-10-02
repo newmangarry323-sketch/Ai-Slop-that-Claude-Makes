@@ -23,6 +23,149 @@ It is a learning project: about 6,500 lines of C you can read in a few
 afternoons. It is **not** a real UNIX: there are no processes, no memory
 protection and no disk. See [What it does not do](#what-it-does-not-do).
 
+**Want to install real Linux programs?** That is what the
+**[Debian edition](#debian-edition-install-linux-software)** is for: the same
+desktop running on Debian 13 with a Linux kernel and `apt`.
+
+## Debian edition: install Linux software
+
+The bare SkarletOS kernel above can only run the programs built into it.
+Running ordinary Linux programs needs Linux's system calls, drivers and
+libraries, far more than this kernel has, so the Debian edition does it the
+other way round: it puts the **SkarletOS desktop on top of Debian 13
+("trixie")**, a full Linux system. The desktop becomes the window manager:
+the panel, launcher, runner, widgets, themes and the maroon accent are the
+same code (`src/`), but now the windows can belong to any Linux program.
+
+![Firefox, installed with apt, running in the SkarletOS desktop](docs/screenshots/linux/11-firefox.png)
+
+| | | |
+|---|---|---|
+| ![Login](docs/screenshots/linux/01-login.png) The login checks your real password | ![apt in Skarlet Terminal](docs/screenshots/linux/06-apt.png) `apt-get install` in Skarlet Terminal | ![xeyes](docs/screenshots/linux/07-xeyes.png) A graphical program (xeyes) in a SkarletOS frame |
+| ![Launcher search](docs/screenshots/linux/10-launcher-firefox.png) Installed programs appear in the launcher | ![Desktop](docs/screenshots/linux/03-desktop.png) The desktop | ![Installed](docs/screenshots/linux/21-disk-desktop.png) Booted from the disk after `skarlet-install` |
+
+These are screenshots taken by the automatic test in QEMU (see below), at
+1912 × 1075 because of QEMU's graphics card.
+
+**Download:** `skarletos-linux.iso` (about 400 MB) from the
+[SkarletOS Debian edition release](https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/skarletos-linux-v1.0).
+It is too big to keep in the repository itself.
+
+### Run it in VMware
+
+1. *File → New Virtual Machine*, Typical, **Installer disc image file
+   (iso)**: pick `skarletos-linux.iso`.
+2. Guest operating system: **Linux**, **Debian 13.x 64-bit** (or "Other
+   Linux 6.x kernel 64-bit" on older VMware).
+3. **2 GB of memory or more**, and a **20 GB** disk if you want to install it.
+4. BIOS or UEFI; with UEFI turn **Secure Boot off** (the boot loader on the
+   ISO is not signed).
+5. Power on and log in. The live system's password is **`skarlet`**.
+
+### Installing and removing software
+
+Open Skarlet Terminal (Alt+F1, Enter):
+
+```sh
+sudo apt update                # refresh the list of software (password: skarlet)
+apt search image editor        # find programs
+sudo apt install gimp          # install one (firefox-esr, vlc, libreoffice...)
+sudo apt remove gimp           # uninstall it
+man apt                        # apt's own manual
+```
+
+Any program Debian packages, terminal or graphical, installs this way, and
+Debian packages tens of thousands of them [L1]. Debian's own package search
+is at https://packages.debian.org/trixie/. A graphical program puts a
+`.desktop` file in `/usr/share/applications` (the freedesktop.org Desktop
+Entry rules [L3]); the launcher checks those folders every two seconds, so
+the program appears there by itself, sorted into a category. (A few small
+programs ship no such file, xeyes among them; start those by typing their
+name in the terminal.) Its windows get
+SkarletOS frames, panel buttons, Alt+Tab, minimise, maximise and F11 full
+screen.
+
+Software that is not in Debian can work too if it is built for 64-bit
+Linux: a `.deb` file from a program's website installs with
+`sudo apt install ./file.deb`, and Flatpak is in Debian
+(`sudo apt install flatpak`); the launcher also reads Flatpak's program
+folder. These two paths are **not tested** here, only apt from Debian's
+servers is.
+
+### Keeping what you install
+
+The live system runs from memory and forgets everything when it stops. To
+keep your programs and files, install it to the virtual disk:
+
+```sh
+sudo skarlet-install
+```
+
+It asks which disk to use (**everything on it is erased**) and for a new
+password, copies the running system (including what you installed),
+and sets up booting for BIOS and UEFI. Shut down, remove the ISO from the
+virtual CD drive, and start again.
+
+### How the Debian edition fits together
+
+```
+linux/session.c      the X11 window manager: puts other programs' windows in
+                     SkarletOS frames, shows the desktop through MIT-SHM, global
+                     keys, focus, EWMH/ICCCM hints for full screen and closing
+linux/term.c         Skarlet Terminal as a real terminal: a pty running bash,
+                     decoded by libvterm (vendored in linux/libvterm, MIT)
+linux/desktop_files.c  installed programs for the launcher (.desktop files)
+linux/monitor.c      Skarlet Monitor and the System Monitor widget from /proc
+linux/vfs_linux.c    Skarlet Files and Write on the real disk
+linux/config.c       settings and widgets saved in ~/.config/skarletos/
+linux/linux.c        start-up, starting programs, the PAM password check
+debian/build-iso.sh  builds the ISO: mmdebstrap, squashfs, grub-mkrescue
+debian/overlay/      files added to Debian: auto-start, skarlet-install, sudo rules
+tools/linux_iso_test.py  the QEMU test described below
+```
+
+`make session` builds `build/skarlet-session` on any Linux with the X11 and
+PAM development files. `sudo debian/build-iso.sh` builds the ISO on Debian 13
+(it needs root, for the chroot); `.github/workflows/build-skarletos-linux.yml`
+shows the exact steps CI uses.
+
+### How the Debian edition was tested
+
+Each push builds the ISO on GitHub's servers and runs `tools/linux_iso_test.py`,
+which boots it in QEMU, types on the virtual keyboard and checks the screen
+and the serial port:
+
+* BIOS boot reaches the login screen; a wrong password is refused, `skarlet`
+  logs in;
+* in Skarlet Terminal, `sudo apt-get install x11-apps` downloads from
+  Debian's servers and **xeyes** opens a window;
+* the desktop's Shut down and Restart are allowed without a password
+  (sudo's rule for them is in effect);
+* `sudo apt-get install firefox-esr`, then Firefox is found in the launcher
+  and **starts from it**;
+* `skarlet-install` installs to an empty virtual disk, the machine **starts
+  from that disk** and the new password works;
+* the ISO also boots with **UEFI** to the login screen.
+
+The desktop code itself was also checked on an X server without a screen
+(Xvfb): window frames, focus, dragging, maximise, full screen, minimise and
+restore, Alt+Tab, closing, the terminal and Skarlet Monitor.
+
+**Not tested:** VMware itself, VirtualBox and real PCs. The screen size is
+set by `skarlet-start`: 1918 × 1075 with VMware's graphics driver
+(`vmwgfx`), 1912 × 1075 elsewhere, since QEMU's standard graphics card needs
+a width divisible by 8. The VMware case is an expectation, not a tested
+result.
+
+### Limits
+
+* Programs keep their own look (GTK, Qt...) inside SkarletOS's frames.
+* SkarletOS's own Files and Write do not use the clipboard yet; other
+  programs copy and paste as usual.
+* Resizing the VMware window does not resize the desktop; choose the size
+  in VMware or use full screen.
+* There's no graphical app store; apt in the terminal is the way in.
+
 ## Run it in VMware
 
 The bootable CD image is **`skarletos.iso`** (4 MiB): download it from the
@@ -281,6 +424,11 @@ glyphs in `src/font_data.c` are rendered from the **DejaVu** fonts (Bitstream
 Vera licence, with DejaVu's changes in the public domain; see
 `docs/FONT-LICENSE.txt`).
 
+The Debian edition's ISO is mostly Debian: each package keeps its own
+licence, listed in `/usr/share/doc/PACKAGE/copyright` on the system. It boots
+with GRUB (GPL-3.0-or-later). Skarlet Terminal uses libvterm (MIT,
+`linux/libvterm/LICENSE`).
+
 ## Sources
 
 None of these are state-run media. Where I relied on reading source code
@@ -325,6 +473,18 @@ rather than documentation, I say so.
   Volume 3, chapter "Memory Cache Control" (the PAT and write-combining):
   https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html
 * DejaVu fonts: https://dejavu-fonts.github.io/
+* [L1] Debian, "Debian 13 trixie" release information:
+  https://www.debian.org/releases/trixie/ and the Debian Reference / `man apt`
+* [L2] Debian Wiki, "DebianLive" (live-boot): https://wiki.debian.org/DebianLive;
+  mmdebstrap: https://gitlab.mister-muffin.de/josch/mmdebstrap
+* [L3] freedesktop.org, "Desktop Entry Specification":
+  https://specifications.freedesktop.org/desktop-entry-spec/latest/
+* [L4] freedesktop.org, "Extended Window Manager Hints":
+  https://specifications.freedesktop.org/wm-spec/latest/ and X.Org, "Inter-Client
+  Communication Conventions Manual":
+  https://x.org/releases/X11R7.6/doc/xorg-docs/specs/ICCCM/icccm.html
+* [L5] libvterm: https://github.com/neovim/libvterm (MIT licence)
+* [L6] Linux-PAM: https://github.com/linux-pam/linux-pam and `man pam`
 * W3C, "CSS Color Module Level 3" (maroon = #800000):
   https://www.w3.org/TR/css-color-3/#html4
 

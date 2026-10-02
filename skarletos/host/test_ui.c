@@ -51,6 +51,15 @@ uint32_t plat_mem_kib(void) { return 131072; }
 void plat_reboot(void) { reboots++; }
 void plat_poweroff(void) { poweroffs++; }
 
+/* External windows (another program's) ask the platform to close them. */
+static int close_requests;
+static long last_close;
+void plat_window_close(long ext)
+{
+    close_requests++;
+    last_close = ext;
+}
+
 /* ---- helpers -------------------------------------------------------------- */
 
 static int failures, checks;
@@ -94,6 +103,70 @@ static void advance(int seconds)
 }
 
 static int screen_has(const char *s) { return gfx_text_visible(s); }
+
+/* ---- the mouse -------------------------------------------------------------- */
+
+static void mouse(int type, int x, int y, int button, int clicks)
+{
+    ws_mouse((struct mouse){ type, x, y, button, clicks });
+    ws_tick();
+}
+
+static void click(int x, int y)
+{
+    mouse(MOUSE_DOWN, x, y, 1, 1);
+    mouse(MOUSE_UP, x, y, 1, 1);
+}
+
+static void double_click(int x, int y)
+{
+    click(x, y);
+    mouse(MOUSE_DOWN, x, y, 1, 2);
+    mouse(MOUSE_UP, x, y, 1, 2);
+}
+
+static void drag_by(int x, int y, int dx, int dy)
+{
+    mouse(MOUSE_DOWN, x, y, 1, 1);
+    mouse(MOUSE_MOVE, x + dx / 2, y + dy / 2, 1, 0);
+    mouse(MOUSE_MOVE, x + dx, y + dy, 1, 0);
+    mouse(MOUSE_UP, x + dx, y + dy, 1, 0);
+}
+
+/* Find a point inside the clickable region (kind, arg) of the current
+ * frame, near its middle, by asking what is under a grid of points. */
+static int find_hit(int kind, int arg, int *px, int *py)
+{
+    int x0 = 1 << 30, y0 = 1 << 30, x1 = -1, y1 = -1, fx = -1, fy = -1;
+    for (int y = 0; y < g_h; y += 3)
+        for (int x = 0; x < g_w; x += 3) {
+            int a = -1;
+            if (ws_hit_at(x, y, &a) == kind && a == arg) {
+                if (fx < 0)
+                    fx = x, fy = y;
+                x0 = x < x0 ? x : x0, x1 = x > x1 ? x : x1;
+                y0 = y < y0 ? y : y0, y1 = y > y1 ? y : y1;
+            }
+        }
+    if (fx < 0)
+        return 0;
+    int cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, a = -1;
+    if (ws_hit_at(cx, cy, &a) == kind && a == arg)
+        *px = cx, *py = cy;
+    else
+        *px = fx, *py = fy;
+    return 1;
+}
+
+/* Click the middle of a clickable region; fails the test if there is none. */
+static int click_hit(int kind, int arg)
+{
+    int x, y;
+    if (!find_hit(kind, arg, &x, &y))
+        return 0;
+    click(x, y);
+    return 1;
+}
 
 /* Text drawn on the panel (the bottom of the screen). */
 static int panel_has(const char *s) { return gfx_text_visible_in(PANEL_Y, g_h, s); }
@@ -716,6 +789,156 @@ static void test_leave(void)
     CHECK(g_ws.phase == PHASE_OFF);
 }
 
+static void test_mouse(void)
+{
+    boot();
+    CHECK(click_hit(HIT_LOGIN, 0));
+    CHECK(g_ws.phase == PHASE_DESKTOP);
+
+    /* The panel's launcher button opens the launcher; its tabs and entries click. */
+    CHECK(click_hit(HIT_PANEL_LAUNCHER, 0));
+    CHECK(ws_popup_open() && screen_has("Favorites"));
+    CHECK(click_hit(HIT_TAB, 4));
+    CHECK(screen_has("Shut down") && screen_has("Restart"));
+    CHECK(click_hit(HIT_TAB, 0));
+    CHECK(click_hit(HIT_ITEM, 0)); /* Skarlet Terminal */
+    struct window *w = wm_focused();
+    CHECK(w && w->app == APP_TERMINAL && !ws_popup_open());
+    if (!w)
+        return;
+    int pid = w->pid;
+
+    /* Drag the title bar to move the window. */
+    int x0 = w->x, y0 = w->y;
+    drag_by(w->x + 100, w->y + 12, 200, 60);
+    CHECK(w->x == x0 + 200 && w->y == y0 + 60);
+
+    /* Maximize and restore with the button, then with a double click. */
+    int ww = w->w, wh = w->h;
+    CHECK(click_hit(HIT_WIN_MAX, pid));
+    CHECK(w->maximized && w->x == 0 && w->y == 0 && w->w == g_w && w->h == DESK_BOTTOM);
+    CHECK(click_hit(HIT_WIN_MAX, pid));
+    CHECK(!w->maximized && w->w == ww && w->h == wh && w->x == x0 + 200);
+    double_click(w->x + 100, w->y + 12);
+    CHECK(w->maximized);
+    double_click(w->x + 100, w->y + 12);
+    CHECK(!w->maximized);
+
+    /* Resize from the bottom-right corner. */
+    drag_by(w->x + w->w - 4, w->y + w->h - 4, 100, 50);
+    CHECK(w->w == ww + 100 && w->h == wh + 50);
+
+    /* Minimize; the task button stays and brings it back; clicking the
+     * button of the focused window minimizes it again. */
+    CHECK(click_hit(HIT_WIN_MIN, pid));
+    CHECK(w->minimized && wm_focused() == NULL);
+    CHECK(click_hit(HIT_PANEL_TASK, pid));
+    CHECK(!w->minimized && wm_focused() == w);
+    CHECK(click_hit(HIT_PANEL_TASK, pid));
+    CHECK(w->minimized);
+    CHECK(click_hit(HIT_PANEL_TASK, pid));
+
+    /* The wheel scrolls the terminal back. */
+    for (int i = 0; i < 20; i++)
+        cmd("echo scroll");
+    int cx, cy, cw, ch;
+    wm_client_rect(w, &cx, &cy, &cw, &ch);
+    mouse(MOUSE_WHEEL, cx + 50, cy + 50, 4, 1);
+    CHECK(w->s.term.scroll == 3 && screen_has("scrollback"));
+    mouse(MOUSE_WHEEL, cx + 50, cy + 50, 5, 1);
+    CHECK(w->s.term.scroll == 0);
+
+    /* The close button. */
+    CHECK(click_hit(HIT_WIN_CLOSE, pid));
+    CHECK(wm_by_pid(pid) == NULL);
+
+    /* Another program's window: SkarletOS frames it and lists it, and
+     * closing asks the program instead of removing the window. */
+    struct window *e = wm_open_external(4242, "Firefox ESR", 800, 600);
+    ws_tick();
+    CHECK(e && e->app == APP_EXTERNAL && e->w == 802 && e->h == 600 + TITLE_H + 2);
+    CHECK(screen_has("Firefox ESR") && wm_by_ext(4242) == e && wm_focused() == e);
+    if (!e)
+        return;
+    int epid = e->pid;
+    int ex, ey, ecw, ech;
+    wm_client_rect(e, &ex, &ey, &ecw, &ech);
+    CHECK(ecw == 800 && ech == 600);
+    CHECK(find_hit(HIT_PANEL_TASK, epid, &ex, &ey));
+    CHECK(click_hit(HIT_WIN_CLOSE, epid));
+    CHECK(close_requests == 1 && last_close == 4242 && wm_by_pid(epid) == e);
+    alt(K_F4);
+    CHECK(close_requests == 2);
+    wm_remove(e); /* the program has gone */
+    ws_tick();
+    CHECK(wm_by_ext(4242) == NULL && !screen_has("Firefox ESR"));
+
+    /* Skarlet Files: double-click a folder to open it. */
+    svc_launch(APP_FILES, "/home/user");
+    ws_tick();
+    w = wm_focused();
+    wm_client_rect(w, &cx, &cy, &cw, &ch);
+    double_click(cx + 190 + 120, cy + 50 + 10); /* the first row: Desktop */
+    CHECK(strstr(w->title, "Desktop - Skarlet Files") != NULL);
+    click(cx + 60, cy + 36 + 4 * 36 + 10); /* Places: Root */
+    CHECK(strstr(w->title, "/ - Skarlet Files") != NULL);
+    wm_close(w);
+
+    /* Skarlet Settings: click the colour swatches. */
+    svc_launch(APP_SETTINGS, 0);
+    ws_tick();
+    w = wm_focused();
+    wm_client_rect(w, &cx, &cy, &cw, &ch);
+    int right = cw - 40, row1 = 88 + 52 + 22;
+    click(cx + right - 12 - 30 * (g_accent_count - 2), cy + row1); /* Blue */
+    CHECK(strcmp(g_accents[g_accent_index].name, "Blue") == 0);
+    click(cx + right - 12 - 30 * (g_accent_count - 1), cy + row1); /* Maroon */
+    CHECK(g_theme->accent == MAROON);
+    wm_close(w);
+    ws_tick();
+
+    /* A click outside a popup closes it. */
+    alt(K_F2);
+    CHECK(ws_popup_open());
+    click(g_w / 2, g_h / 2);
+    CHECK(!ws_popup_open());
+
+    /* The wheel over the pager switches virtual desktops. */
+    int px, py;
+    CHECK(find_hit(HIT_PANEL_DESK, 0, &px, &py));
+    mouse(MOUSE_WHEEL, px, py, 5, 1);
+    CHECK(g_ws.desk == 1);
+    CHECK(click_hit(HIT_PANEL_DESK, 0));
+    CHECK(g_ws.desk == 0);
+
+    /* Notifications go away when clicked. */
+    svc_notify("Test", "Click me");
+    ws_tick();
+    CHECK(screen_has("Click me"));
+    CHECK(click_hit(HIT_TOAST, 0));
+    CHECK(!screen_has("Click me"));
+
+    /* Widgets: click to focus, drag the handle's move grip. */
+    struct activity *a = &g_ws.activities[0];
+    CHECK(click_hit(HIT_WIDGET, 0));
+    CHECK(a->focus == 0);
+    int wx = a->widgets[0].x, wy = a->widgets[0].y;
+    CHECK(find_hit(HIT_WIDGET_MOVE, 0, &px, &py));
+    drag_by(px, py, 32, 48);
+    CHECK(a->widgets[0].x == wx + 32 && a->widgets[0].y == wy + 48);
+
+    /* The desktop menu and the Add Widgets sheet: one click picks a tile, a
+     * second click adds it. */
+    alt(K_F12);
+    CHECK(click_hit(HIT_ITEM, 0));
+    CHECK(screen_has("Add Widgets") && screen_has("Fifteen"));
+    CHECK(click_hit(HIT_ITEM, 1));
+    CHECK(ws_popup_open() && screen_has("A sticky note to type into"));
+    CHECK(click_hit(HIT_ITEM, 1));
+    CHECK(!ws_popup_open() && screen_has("Added Notes"));
+    save("mouse");
+}
+
 /* Random key presses for a while: looks for crashes and memory errors
  * (this build uses AddressSanitizer). */
 static void test_fuzz(void)
@@ -741,6 +964,26 @@ static void test_fuzz(void)
         qtail = (qtail + 1) % 64;
         if (i % 8 == 7)
             ws_tick();
+        /* Now and then the mouse: clicks, double clicks, drags and the wheel
+         * anywhere, and other programs' windows coming and going. */
+        if (i % 13 == 0) {
+            uint32_t m = k_rand();
+            int x = (int)(m % (uint32_t)g_w), y = (int)((m >> 11) % (uint32_t)g_h);
+            int type = (int)((m >> 22) % 4), clicks = 1 + (int)((m >> 26) & 1);
+            ws_mouse((struct mouse){ type, x, y, type == MOUSE_WHEEL ? 4 + (int)((m >> 27) & 1) : 1,
+                                     clicks });
+        }
+        if (i % 401 == 0)
+            wm_open_external(1000 + i, "Fuzz window", 300 + i % 500, 200 + i % 300);
+        if (i % 577 == 0) {
+            struct window *all[MAX_WIN];
+            int n = wm_list_all(all, MAX_WIN);
+            for (int j = 0; j < n; j++)
+                if (all[j]->ext) {
+                    wm_remove(all[j]);
+                    break;
+                }
+        }
         if (i % 97 == 0)
             advance(1);
     }
@@ -760,6 +1003,7 @@ int main(void)
     test_toolbox_activities_widgets();
     test_settings_theme();
     test_leave();
+    test_mouse();
     test_fuzz();
     printf("%d checks, %d failures, %d frames drawn\n", checks, failures, frames);
     return failures ? 1 : 0;
