@@ -1067,13 +1067,14 @@ uint32_t plat_mem_kib(void)
 
 void plat_reboot(void)
 {
-    if (linux_run("systemctl reboot") < 0)
+    /* The sudo rule in /etc/sudoers.d/skarletos allows these without a password. */
+    if (linux_run("systemctl reboot || sudo -n systemctl reboot") < 0)
         svc_notify("SkarletOS", "Could not restart the computer.");
 }
 
 void plat_poweroff(void)
 {
-    if (linux_run("systemctl poweroff") < 0)
+    if (linux_run("systemctl poweroff || sudo -n systemctl poweroff") < 0)
         svc_notify("SkarletOS", "Could not turn off the computer.");
 }
 

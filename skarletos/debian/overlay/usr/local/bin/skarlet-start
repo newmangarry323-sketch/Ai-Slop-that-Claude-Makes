@@ -1,0 +1,17 @@
+#!/bin/sh
+# skarlet-start - set up the screen and start the SkarletOS desktop.
+#
+# SkarletOS is designed for 1918 x 1075.  We add that mode with xrandr and
+# switch to it; on graphics that cannot do it the screen stays as it is and
+# the desktop adapts.  (The numbers after the name are a "modeline": pixel
+# clock and timings, which virtual graphics cards accept as given.)
+out=$(xrandr 2>/dev/null | awk '/ connected/ { print $1; exit }')
+if [ -n "$out" ]; then
+    if ! xrandr 2>/dev/null | grep -q '^ *1918x1075 '; then
+        xrandr --newmode 1918x1075 173.00 1918 2040 2240 2560 1075 1078 1088 1120 -hsync +vsync
+        xrandr --addmode "$out" 1918x1075
+    fi
+    xrandr --output "$out" --mode 1918x1075 || echo "skarlet-start: 1918x1075 not possible here"
+fi
+xset s off -dpms 2>/dev/null   # no screen blanking
+exec /usr/local/bin/skarlet-session

@@ -1,0 +1,7 @@
+# Wired network (what VMware and QEMU give a virtual machine): get an
+# address from DHCP.  systemd-networkd applies it.
+[Match]
+Name=en* eth*
+
+[Network]
+DHCP=yes

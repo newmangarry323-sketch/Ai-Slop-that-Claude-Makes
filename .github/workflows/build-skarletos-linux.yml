@@ -1,0 +1,117 @@
+name: Build SkarletOS (Debian edition)
+
+on:
+  # workflow_dispatch only appears in the Actions UI once this file is on the
+  # default branch, so pushes that touch the Linux edition trigger a build too.
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: >-
+          Publish the ISO as the GitHub release for the version in
+          skarletos/debian/VERSION. Leave off to only build and test.
+        type: boolean
+        default: false
+  push:
+    branches:
+      - 'main'
+      - 'claude/**'
+    paths:
+      - 'skarletos/src/**'
+      - 'skarletos/linux/**'
+      - 'skarletos/debian/**'
+      - 'skarletos/Makefile'
+      - 'skarletos/tools/linux_iso_test.py'
+      - 'skarletos/tools/qemu_test.py'
+      - '.github/workflows/build-skarletos-linux.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: skarletos-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  iso:
+    name: Build the Debian ISO, boot it, install software with apt
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the version
+        id: meta
+        run: |
+          version=$(cat skarletos/debian/VERSION)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "SkarletOS Debian edition $version"
+
+      # Debian's own tools, in a Debian 13 container; --privileged because
+      # building a system needs chroot and mounts.
+      - name: Build the ISO (Debian 13 "trixie")
+        run: |
+          docker run --rm --privileged -v "$PWD":/src -w /src debian:trixie \
+            skarletos/debian/build-iso.sh /src/skarletos-linux.iso
+          sudo chown "$(id -u):$(id -g)" skarletos-linux.iso
+          ls -la skarletos-linux.iso
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq qemu-system-x86 ovmf imagemagick
+          # Let QEMU use the processor's virtualisation (KVM) if the runner has it.
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+          ls -la /dev/kvm || echo "no KVM: the tests run (slowly) without it"
+
+      - name: Test with BIOS - log in, apt install, run a GUI program, install to disk
+        run: |
+          truncate -s 8G disk.img
+          python3 skarletos/tools/linux_iso_test.py skarletos-linux.iso \
+            --out test-bios --install disk.img
+
+      - name: Test with UEFI - boot to the login screen
+        run: |
+          python3 skarletos/tools/linux_iso_test.py skarletos-linux.iso \
+            --out test-uefi --uefi /usr/share/OVMF/OVMF_CODE_4M.fd --boot-only
+
+      - name: Checksum
+        if: always()
+        run: sha256sum skarletos-linux.iso | tee SHA256SUMS-linux
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: skarletos-linux-${{ steps.meta.outputs.version }}
+          path: |
+            skarletos-linux.iso
+            SHA256SUMS-linux
+            test-bios/
+            test-uefi/
+          if-no-files-found: warn
+
+      - name: Clear a stale release for this version
+        if: inputs.publish || contains(github.event.head_commit.message, '[skarletos-linux-release]')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="skarletos-linux-v${{ steps.meta.outputs.version }}"
+          if gh release view "$tag" --json tagName > /dev/null 2>&1; then
+            gh release delete "$tag" --yes --cleanup-tag
+          fi
+
+      - name: Publish the release
+        if: inputs.publish || contains(github.event.head_commit.message, '[skarletos-linux-release]')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: skarletos-linux-v${{ steps.meta.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: SkarletOS ${{ steps.meta.outputs.version }} - Debian edition (apt, runs Linux programs)
+          body_path: skarletos/debian/RELEASE_NOTES.md
+          files: |
+            skarletos-linux.iso
+            SHA256SUMS-linux
+            test-bios/*.png

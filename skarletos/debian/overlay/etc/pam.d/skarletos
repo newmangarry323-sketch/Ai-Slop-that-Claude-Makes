@@ -1,0 +1,4 @@
+# PAM service for the SkarletOS login screen: check the password the way
+# console logins do.
+@include common-auth
+@include common-account

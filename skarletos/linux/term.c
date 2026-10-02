@@ -185,6 +185,7 @@ static void start_shell(struct term *t, const char *cmd)
     if (pid == 0) {
         setenv("TERM", "xterm-256color", 1);
         setenv("COLORTERM", "truecolor", 1);
+        setenv("SKARLET_TERMINAL", "1", 1); /* for the tip in /etc/profile.d/skarletos.sh */
         const char *home = getenv("HOME");
         if (home && chdir(home) != 0) {
             /* stay where we are */
