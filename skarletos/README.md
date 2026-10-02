@@ -47,7 +47,7 @@ same code (`src/`), but now the windows can belong to any Linux program.
 These are screenshots taken by the automatic test in QEMU (see below), at
 1912 × 1075 because of QEMU's graphics card.
 
-**Download:** `skarletos-linux.iso` (about 400 MB) from the
+**Download:** `skarletos-linux.iso` (about 430 MB) from the
 [SkarletOS Debian edition release](https://github.com/newmangarry323-sketch/Ai-Slop-that-Claude-Makes/releases/tag/skarletos-linux-v1.0).
 It is too big to keep in the repository itself.
 
