@@ -307,6 +307,7 @@ local function addSeamLength(player: Player, base: BasePart, partner: BasePart, 
 		newJoint.Part1 = partner
 		newJoint:AddTag(Config.JointTag)
 		newJoint:SetAttribute("LocalPoint", base.CFrame:PointToObjectSpace(point))
+		newJoint:SetAttribute("WeldedBy", player.UserId)
 		updateStrength(newJoint, entry.length, entry.quality)
 		newJoint.Parent = base
 		row[partner] = nil
@@ -445,20 +446,30 @@ local function rebuildJointInfo()
 	end
 end
 
--- Is anything other than the joint's own parts holding this side up
--- (a table, the floor, a support block)?
-local function isSupported(side: { BasePart }, ignore: { Instance }): boolean
+-- Look at what touches the hanging side of a joint.
+-- * Something underneath it, or anything held in place (anchored or welded
+--   to something anchored), is a support: the joint doesn't carry the load.
+-- * Loose parts resting on top (a crate on a shelf) add their weight to the
+--   load. Only the parts directly on top count, not a whole stack.
+local function scanContacts(side: { BasePart }, ignore: { Instance }): (boolean, { BasePart })
 	local params = OverlapParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = ignore
+	local resting: { BasePart } = {}
+	local seen: { [BasePart]: boolean } = {}
 	for _, part in side do
 		for _, touching in workspace:GetPartBoundsInBox(part.CFrame, part.Size + Vector3.new(0.1, 0.1, 0.1), params) do
-			if touching.CanCollide then
-				return true
+			if touching.CanCollide and not seen[touching] then
+				seen[touching] = true
+				local held = touching.Anchored or touching:IsGrounded()
+				if held or touching.Position.Y < part.Position.Y then
+					return true, {}
+				end
+				table.insert(resting, touching)
 			end
 		end
 	end
-	return false
+	return false, resting
 end
 
 -- Static load: one side is held by an anchored part, the other side hangs
@@ -477,18 +488,23 @@ local function checkStaticLoad(info: JointInfo)
 	for _, part in info.side1 do
 		table.insert(ignore, part)
 	end
-	if isSupported(loadSide, ignore) then
+	local supported, resting = scanContacts(loadSide, ignore)
+	if supported then
 		return
 	end
 
 	local mass, weighted = 0, Vector3.zero
-	for _, part in loadSide do
-		if not part.Massless then
-			local m = part:GetMass()
-			mass += m
-			weighted += part.Position * m
+	local function addLoad(parts: { BasePart })
+		for _, part in parts do
+			if not part.Massless then
+				local m = part:GetMass()
+				mass += m
+				weighted += part.Position * m
+			end
 		end
 	end
+	addLoad(loadSide)
+	addLoad(resting)
 	if mass <= 0 then
 		return
 	end

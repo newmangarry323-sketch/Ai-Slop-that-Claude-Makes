@@ -227,5 +227,60 @@ class Strength(unittest.TestCase):
         self.assertGreater(force, self.BEAM_MASS * self.GRAVITY)
 
 
+
+class ExampleNumbers(unittest.TestCase):
+    """The claims made in examples/04 and examples/05 (Metal density 7.85 assumed)."""
+
+    G = 196.2
+    DENSITY = 7.85
+
+    def shelf_torques(self):
+        # Steel shelf 3 x 0.3 x 2.5, centre 1.25 studs out from the wall.
+        shelf = 3 * 0.3 * 2.5 * self.DENSITY * self.G * 1.25
+        # Crates 0.8^3, density 10*i, at these distances out from the wall.
+        levers = [0.6, 0.6, 1.2, 1.9, 1.9, 2.1]
+        running, out = shelf, [shelf]
+        for i, lever in enumerate(levers, start=1):
+            running += 0.8 ** 3 * 10 * i * self.G * lever
+            out.append(running)
+        return out  # torque with 0..6 crates
+
+    def crates_held(self, length, quality):
+        _, rating = joint_strength(length, quality)
+        torques = self.shelf_torques()
+        if torques[0] > rating:
+            return -1  # shelf falls when the prop goes
+        return max(i for i, t in enumerate(torques) if t <= rating)
+
+    def test_tack_drops_empty_shelf(self):
+        self.assertEqual(self.crates_held(C["TackLength"], 1.0), -1)
+
+    def test_short_weld_holds_a_few(self):
+        held = self.crates_held(0.6, 0.9)
+        self.assertGreaterEqual(held, 0)
+        self.assertLess(held, 6)
+
+    def test_full_back_edge_holds_all(self):
+        self.assertEqual(self.crates_held(3.0, 0.85), 6)
+
+    def impact_force(self, drop_height, frames):
+        # Landing speed, stopped over `frames` Heartbeat frames (1/60 s each),
+        # minus the ImpactGrace allowance, times the lighter block's mass.
+        v = math.sqrt(2 * self.G * drop_height)
+        a = v / (frames / 60)
+        grace = setting("ImpactGrace") * self.G
+        return max(0, a - grace) * 1 * self.DENSITY
+
+    def test_drop_tack_cracks(self):
+        force_rating, _ = joint_strength(0.3, 1)
+        for frames in (1, 2, 3):
+            self.assertGreater(self.impact_force(20, frames), force_rating)
+
+    def test_drop_full_weld_holds(self):
+        force_rating, _ = joint_strength(4, 0.95)
+        for frames in (1, 2, 3):
+            self.assertLess(self.impact_force(20, frames), force_rating)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

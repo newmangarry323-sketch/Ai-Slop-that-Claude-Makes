@@ -98,7 +98,9 @@ together. Wood, plastic and other non-metals won't strike an arc.
 then press Play. Rojo users can `rojo serve` in the folder instead.
 
 Everything is in [`roblox-welder/`](roblox-welder/), with a guide to how it works and
-things to try changing. It has not been tested in Studio yet, so check the Output window
+things to try changing. [`roblox-welder/examples/`](roblox-welder/examples/) has five
+add-on scripts: weldable-part rules, leaderboard stats, an angle grinder, a shelf
+challenge mini-game, and a drop test. It has not been tested in Studio yet, so check the Output window
 on the first run.
 
 

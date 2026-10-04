@@ -13,7 +13,7 @@ import pathlib
 import re
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent / "src"
+PROJECT = pathlib.Path(__file__).resolve().parent.parent
 
 TOKEN = re.compile(
     r"--\[(=*)\[.*?\]\1\]"  # long comment
@@ -99,7 +99,7 @@ def check(path: pathlib.Path) -> list[str]:
 
 
 def main() -> int:
-    files = sorted(ROOT.rglob("*.luau"))
+    files = sorted(PROJECT.glob("src/**/*.luau")) + sorted(PROJECT.glob("examples/*.luau"))
     problems = []
     for f in files:
         problems += check(f)

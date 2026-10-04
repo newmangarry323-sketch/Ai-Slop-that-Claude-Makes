@@ -98,7 +98,7 @@ Reading this alongside the code is the quickest way to learn it.
   itself, 4 times a second:
   if one side of a joint is held by an anchored part and the other side hangs free (nothing
   under it), the joint must carry weight = *m g* and torque = *m g* × sideways distance
-  to the centre of mass. It also checks impacts every frame: (mass of the lighter side) ×
+  to the centre of mass. Loose parts resting on top (a crate on a shelf) add to that load. It also checks impacts every frame: (mass of the lighter side) ×
   (sudden acceleration beyond `ImpactGrace` g). These are approximations. They only follow
   welds made by this tool, and they ignore spin.
 * **Heat.** Temperature follows *T*(*t*) = *T*air + (*T*0 − *T*air) e^(−*kt*).
@@ -117,19 +117,26 @@ Everything is in the `Config` table at the top of `WelderShared`. The usual ones
 * `ArcSoundId`: empty on purpose (no audio ships with this). Put in the id of a looping
   sound you have the rights to.
 
+## Examples
+
+[`examples/`](examples/) has five extra scripts that build on the welder:
+choosing what's weldable, leaderboard stats for welds, an angle grinder, a "how much can
+your shelf hold?" mini-game, and welding in code with a drop test. See
+[`examples/README.md`](examples/README.md).
+
 ## Things to try changing yourself
 
 1. Make `Foil` refuse to weld at all instead of welding badly.
-2. Add a grinder tool that removes ripples (they are in each part's `WeldBeads` folder)
-   and lowers that joint's strength.
+2. Show a weld's strength above it when you look at it (a `BillboardGui` at the joint's
+   `LocalPoint`).
 3. Add slag for stick welding: a dark crust over the bead that you chip off.
 4. Make torque use the real direction of the load instead of only the sideways distance.
 
 ## Checks
 
 ```
-python3 tests/check_structure.py   # block/bracket structure of the .luau files
-python3 tests/test_math.py         # bead geometry, cooling, quality, strength numbers
+python3 tests/check_structure.py   # block/bracket structure of the .luau files (src and examples)
+python3 tests/test_math.py         # bead geometry, cooling, quality, strength, example numbers
 ```
 
 ## Sources
