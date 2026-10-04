@@ -28,16 +28,6 @@ Everything is in [`rust-building-mod/`](rust-building-mod/), including the ready
 `rust-building-1.1.0.jar` and a guide to playing and building it.
 
 
-## MIG Welder (Roblox)
-
-A welding tool for Roblox that only works on metal. It lays glowing beads that cool
-down, joins metal parts along their seams, and welds that are too short or sloppy
-snap under load. It comes with a practice bench and a welding helmet.
-
-Everything is in [`roblox-welder/`](roblox-welder/): three scripts to paste into
-Studio, a Rojo project, and a guide to how it works. (Not tested in Studio yet.)
-
-
 ## SkarletOS (x86-64 hobby OS)
 
 <img src="skarletos/docs/logo/skarletos-logo-128.png" alt="SkarletOS logo" width="80" align="right">
@@ -85,6 +75,31 @@ In VMware choose "Debian 13.x 64-bit", 2 GB of memory; the live password is
 
 ![Firefox in SkarletOS](skarletos/docs/screenshots/linux/11-firefox.png)
 
+
+
+## MIG Welder (Roblox)
+
+A welding tool for Roblox that only works on metal. Hold the trigger on a metal part
+and it lays a bead of overlapping ripples that glow white-hot and cool through orange
+and red to grey. Run the bead along the seam between two metal parts and they weld
+together. Wood, plastic and other non-metals won't strike an arc.
+
+* travel speed and distance change the bead: too fast is thin and weak, too slow
+  piles up, too far away spatters
+* rusty metal and foil weld badly, and thin sheet can burn through
+* a tack weld joins parts; longer, cleaner welds are stronger, and weak ones snap
+  under load or on impact
+* an auto-darkening welding helmet (H lifts it), a HUD showing speed and quality, and
+  a practice bench with a strength test
+
+**Install:** in Roblox Studio, paste the three scripts from
+[`roblox-welder/src/`](roblox-welder/src/) into ReplicatedStorage (ModuleScript
+`WelderShared`), ServerScriptService (Script) and StarterPlayerScripts (LocalScript),
+then press Play. Rojo users can `rojo serve` in the folder instead.
+
+Everything is in [`roblox-welder/`](roblox-welder/), with a guide to how it works and
+things to try changing. It has not been tested in Studio yet, so check the Output window
+on the first run.
 
 
 
