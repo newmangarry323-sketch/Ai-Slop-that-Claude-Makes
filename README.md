@@ -28,6 +28,16 @@ Everything is in [`rust-building-mod/`](rust-building-mod/), including the ready
 `rust-building-1.1.0.jar` and a guide to playing and building it.
 
 
+## MIG Welder (Roblox)
+
+A welding tool for Roblox that only works on metal. It lays glowing beads that cool
+down, joins metal parts along their seams, and welds that are too short or sloppy
+snap under load. It comes with a practice bench and a welding helmet.
+
+Everything is in [`roblox-welder/`](roblox-welder/): three scripts to paste into
+Studio, a Rojo project, and a guide to how it works. (Not tested in Studio yet.)
+
+
 ## SkarletOS (x86-64 hobby OS)
 
 <img src="skarletos/docs/logo/skarletos-logo-128.png" alt="SkarletOS logo" width="80" align="right">
