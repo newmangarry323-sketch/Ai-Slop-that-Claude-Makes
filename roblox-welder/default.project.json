@@ -1,0 +1,23 @@
+{
+  "name": "roblox-welder",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "WelderShared": {
+        "$path": "src/shared/WelderShared.luau"
+      }
+    },
+    "ServerScriptService": {
+      "WelderServer": {
+        "$path": "src/server/WelderServer.server.luau"
+      }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "WelderClient": {
+          "$path": "src/client/WelderClient.client.luau"
+        }
+      }
+    }
+  }
+}

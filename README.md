@@ -77,6 +77,31 @@ In VMware choose "Debian 13.x 64-bit", 2 GB of memory; the live password is
 
 
 
+## MIG Welder (Roblox)
+
+A welding tool for Roblox that only works on metal. Hold the trigger on a metal part
+and it lays a bead of overlapping ripples that glow white-hot and cool through orange
+and red to grey. Run the bead along the seam between two metal parts and they weld
+together. Wood, plastic and other non-metals won't strike an arc.
+
+* travel speed and distance change the bead: too fast is thin and weak, too slow
+  piles up, too far away spatters
+* rusty metal and foil weld badly, and thin sheet can burn through
+* a tack weld joins parts; longer, cleaner welds are stronger, and weak ones snap
+  under load or on impact
+* an auto-darkening welding helmet (H lifts it), a HUD showing speed and quality, and
+  a practice bench with a strength test
+
+**Install:** in Roblox Studio, paste the three scripts from
+[`roblox-welder/src/`](roblox-welder/src/) into ReplicatedStorage (ModuleScript
+`WelderShared`), ServerScriptService (Script) and StarterPlayerScripts (LocalScript),
+then press Play. Rojo users can `rojo serve` in the folder instead.
+
+Everything is in [`roblox-welder/`](roblox-welder/), with a guide to how it works and
+things to try changing. It has not been tested in Studio yet, so check the Output window
+on the first run.
+
+
 
 
 
