@@ -103,6 +103,30 @@ on the first run.
 
 
 
+## Slopworks Kestrel (BeamNG.drive car mod)
+
+<img src="beamng-kestrel/docs/kestrel_front.png" alt="Slopworks Kestrel" width="480">
+
+A small rear-wheel-drive coupe for BeamNG.drive, made entirely from code: its own body,
+soft-body physics skeleton, double-wishbone suspension, 1.8 litre engine, 5-speed gearbox
+and 3D model, with no parts taken from the game's cars.
+
+* two versions: **Base** (131 hp, open differential) and **Sport** (167 hp, limited-slip
+  differential, stiffer springs)
+* the body crumples in a crash: soft nose and tail, a stiff cabin
+* springs, dampers, tyre pressures, brakes and final drive can be changed in the tuning menu
+
+**Install:** put [`slop_kestrel.zip`](beamng-kestrel/slop_kestrel.zip) (still zipped) in the
+`mods` folder of your BeamNG.drive user folder, then pick **Slopworks Kestrel** in the
+vehicle selector.
+
+Everything is in [`beamng-kestrel/`](beamng-kestrel/), with a guide to how BeamNG cars work
+and things to try changing. It has not been tested in the game yet. It passes BeamNG's own
+JBeam parser and a settling simulation, but check the console (the **`** key) on the first
+drive.
+
+
+
 
 
 

@@ -1,0 +1,141 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Kestrel preview</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #d9dee4; overflow: hidden; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<!--
+  Renders the mod's .dae with the colours from main.materials.json, and can
+  overlay the physics nodes and beams. Opened by tools/render_preview.js:
+    preview.html?lib=<folder with three.min.js and ColladaLoader.js>&view=front|rear|side|physics
+  Faces are drawn one-sided on purpose, so a triangle wound the wrong way
+  shows up as a hole.
+-->
+<script>
+  const params = new URLSearchParams(location.search)
+  const lib = params.get('lib')
+  document.write('<script src="' + lib + '/three.min.js"><\/script>')
+</script>
+<script>
+const view = params.get('view') || 'front'
+const W = 1600, H = 1000
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
+renderer.setSize(W, H)
+renderer.shadowMap.enabled = true
+renderer.shadowMap.type = THREE.PCFSoftShadowMap
+renderer.outputColorSpace = THREE.SRGBColorSpace
+document.body.appendChild(renderer.domElement)
+
+const scene = new THREE.Scene()
+scene.background = new THREE.Color(view === 'physics' ? 0x1d2228 : 0xd9dee4)
+scene.add(new THREE.HemisphereLight(0xf2f6ff, 0x5a5550, 1.6))
+const sun = new THREE.DirectionalLight(0xffffff, 2.2)
+sun.position.set(4, 7, 5)
+sun.castShadow = true
+sun.shadow.mapSize.set(2048, 2048)
+Object.assign(sun.shadow.camera, { left: -4, right: 4, top: 4, bottom: -4 })
+scene.add(sun)
+const fill = new THREE.DirectionalLight(0xffffff, 0.6)
+fill.position.set(-5, 3, -4)
+scene.add(fill)
+
+const ground = new THREE.Mesh(new THREE.CircleGeometry(9, 64),
+  new THREE.MeshStandardMaterial({ color: view === 'physics' ? 0x2a3038 : 0xc4c9cf, roughness: 1 }))
+ground.rotation.x = -Math.PI / 2
+ground.receiveShadow = true
+scene.add(ground)
+
+// jbeam (x left, y back, z up) -> three.js (x, y up, z towards the viewer)
+const toThree = p => new THREE.Vector3(p[0], p[2], -p[1])
+
+const cams = {
+  front: [[3.9, 1.55, 4.6], [0, 0.45, 0.15]],
+  rear: [[-3.6, 1.7, -4.6], [0, 0.45, -0.1]],
+  side: [[6.2, 0.9, 0.0], [0, 0.5, 0.0]],
+  physics: [[3.6, 2.6, 3.9], [0, 0.45, 0.1]],
+  top: [[0.01, 7.5, 0], [0, 0, 0]],
+}
+const camera = new THREE.PerspectiveCamera(view === 'side' ? 30 : 35, W / H, 0.05, 100)
+camera.position.set(...cams[view][0])
+camera.lookAt(new THREE.Vector3(...cams[view][1]))
+
+async function main () {
+  const mats = await (await fetch('../../mod/vehicles/slop_kestrel/main.materials.json')).json()
+  // ColladaLoader.js is an ES module that uses the global THREE. The copy in
+  // BeamNG's extension skips materials; switch them back on (as plain
+  // placeholders that only carry the name) so each face keeps its material.
+  let src = await (await fetch(lib + '/ColladaLoader.js')).text()
+  src = src.replace(/\/\/ material loading disabled globally\s*return null/,
+    'return new THREE.MeshBasicMaterial({ name: data.name })')
+  const url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }))
+  const { ColladaLoader } = await import(url)
+  const loader = new ColladaLoader()
+  const dae = await new Promise((resolve, reject) =>
+    loader.load('../../mod/vehicles/slop_kestrel/kestrel.dae', resolve, undefined, reject))
+  const ghost = view === 'physics'
+  let triangles = 0
+  dae.scene.traverse(obj => {
+    if (!obj.isMesh) return
+    obj.castShadow = !ghost
+    const list = Array.isArray(obj.material) ? obj.material : [obj.material]
+    const replaced = list.map(m => {
+      const def = mats[m.name]
+      if (!def) throw new Error('no material ' + m.name)
+      const st = def.Stages[0]
+      const c = st.diffuseColor
+      const mat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color().setRGB(c[0], c[1], c[2], THREE.SRGBColorSpace),
+        roughness: st.roughnessFactor ?? 0.5,
+        metalness: (st.metallicFactor ?? 0) * 0.6,
+        side: THREE.FrontSide,
+        transparent: ghost || def.translucent,
+        opacity: ghost ? 0.12 : (def.translucent ? Math.max(c[3], 0.55) : 1),
+        depthWrite: !ghost && !def.translucent,
+      })
+      return mat
+    })
+    obj.material = Array.isArray(obj.material) ? replaced : replaced[0]
+    triangles += obj.geometry.index ? obj.geometry.index.count / 3 : obj.geometry.attributes.position.count / 3
+  })
+  scene.add(dae.scene)
+
+  if (ghost) {
+    const phys = await (await fetch('physics.json')).json()
+    const colours = { body: 0x9fb3c8, suspension: 0xffa040, spring: 0x45e07a, hydro: 0x46a8ff, powertrain: 0xff5a5a }
+    const groups = {}
+    for (const [a, b, kind] of phys.beams) {
+      (groups[kind] = groups[kind] || []).push(toThree(phys.nodes[a]), toThree(phys.nodes[b]))
+    }
+    for (const [kind, pts] of Object.entries(groups)) {
+      const geo = new THREE.BufferGeometry().setFromPoints(pts)
+      scene.add(new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: colours[kind] })))
+    }
+    const sphere = new THREE.SphereGeometry(0.018, 10, 8)
+    const nodeMat = new THREE.MeshBasicMaterial({ color: 0xffe14d })
+    for (const p of Object.values(phys.nodes)) {
+      const s = new THREE.Mesh(sphere, nodeMat)
+      s.position.copy(toThree(p))
+      scene.add(s)
+    }
+    // the wheels the game will generate, as rings
+    for (const [n1, n2, radius] of phys.wheels) {
+      const a = toThree(phys.nodes[n1]), b = toThree(phys.nodes[n2])
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.006, 6, 48),
+        new THREE.MeshBasicMaterial({ color: 0xffffff }))
+      ring.position.copy(a.clone().add(b).multiplyScalar(0.5))
+      ring.rotation.y = Math.PI / 2
+      scene.add(ring)
+    }
+  }
+  renderer.render(scene, camera)
+  document.title = 'ready ' + Math.round(triangles)
+}
+main().catch(e => { document.title = 'error ' + e.message; console.error(e) })
+</script>
+</body>
+</html>

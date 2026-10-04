@@ -1,0 +1,12 @@
+{
+  "Drivetrain": "RWD",
+  "Transmission": "Manual",
+  "Fuel Type": "Gasoline",
+  "Propulsion": "ICE",
+  "Induction Type": "NA",
+  "Body Style": "Coupe",
+  "Configuration": "Base",
+  "Config Type": "Factory",
+  "Value": 14000,
+  "Description": "1.8 litre four, five-speed manual, open differential, comfortable springs."
+}

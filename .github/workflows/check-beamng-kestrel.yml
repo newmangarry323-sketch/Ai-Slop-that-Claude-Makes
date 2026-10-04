@@ -1,0 +1,50 @@
+name: Check BeamNG Kestrel mod
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'main'
+      - 'claude/**'
+    paths:
+      - 'beamng-kestrel/**'
+      - '.github/workflows/check-beamng-kestrel.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Rebuild, lint and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: beamng-kestrel
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      # The committed mod must be exactly what the generator makes.
+      - name: Rebuild and compare with the committed files
+        run: |
+          python3 tools/build_mod.py
+          git status --porcelain -- .
+          test -z "$(git status --porcelain -- .)"
+
+      - name: Fetch BeamNG's JBeam parser
+        run: git clone --depth 1 https://github.com/BeamNG/vscode-jbeam-editor "$RUNNER_TEMP/vscode-jbeam-editor"
+
+      - name: Lint with BeamNG's JBeam parser
+        run: node tools/lint_jbeam.js "$RUNNER_TEMP/vscode-jbeam-editor"
+
+      - name: Cross-checks and drop test
+        run: python3 tools/check_mod.py

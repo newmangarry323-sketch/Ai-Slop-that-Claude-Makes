@@ -1,0 +1,17 @@
+{
+  "format": 2,
+  "model": "slop_kestrel",
+  "mainPartName": "slop_kestrel",
+  "parts": {
+    "kestrel_body": "kestrel_body",
+    "kestrel_suspension_F": "kestrel_suspension_F",
+    "kestrel_suspension_R": "kestrel_suspension_R",
+    "kestrel_wheels_F": "kestrel_wheels_F",
+    "kestrel_wheels_R": "kestrel_wheels_R",
+    "kestrel_engine": "kestrel_engine_i4",
+    "kestrel_transmission": "kestrel_transmission_5M",
+    "kestrel_differential_R": "kestrel_differential_R_open",
+    "kestrel_fueltank": "kestrel_fueltank",
+    "soundscape_horn": "soundscape_horn_1"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "Drivetrain": "RWD",
+  "Transmission": "Manual",
+  "Fuel Type": "Gasoline",
+  "Propulsion": "ICE",
+  "Induction Type": "NA",
+  "Body Style": "Coupe",
+  "Configuration": "Sport",
+  "Config Type": "Factory",
+  "Value": 17500,
+  "Description": "Hotter cams and exhaust, a limited-slip differential, shorter final drive, stiffer springs and stronger brakes."
+}

@@ -1,0 +1,16 @@
+{
+  "Name": "Kestrel",
+  "Brand": "Slopworks",
+  "Author": "newmangarry323-sketch & Claude",
+  "Type": "Car",
+  "Body Style": "Coupe",
+  "Country": "United Kingdom",
+  "Derby Class": "Compact Car",
+  "Description": "A small, light, rear-wheel-drive coupe from the made-up Slopworks company, built entirely from code as a modding example.",
+  "Years": {
+    "min": 1994,
+    "max": 1999
+  },
+  "default_pc": "kestrel_base",
+  "paints": {}
+}
