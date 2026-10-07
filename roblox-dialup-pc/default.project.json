@@ -1,0 +1,23 @@
+{
+  "name": "RetroPC",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "RetroPCShared": {
+        "$path": "src/shared/RetroPCShared.luau"
+      }
+    },
+    "ServerScriptService": {
+      "RetroPCServer": {
+        "$path": "src/server/RetroPCServer.server.luau"
+      }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "RetroPCClient": {
+          "$path": "src/client/RetroPCClient.client.luau"
+        }
+      }
+    }
+  }
+}
