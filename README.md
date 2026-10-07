@@ -102,6 +102,30 @@ things to try changing. It has not been tested in Studio yet, so check the Outpu
 on the first run.
 
 
+## Retro PC with a dial-up wiki (Roblox)
+
+A working 90s computer on a desk. Press E at it and the monitor fills the screen: a
+BIOS memory count, a RetroOS 95 desktop with a Start menu and draggable windows,
+Dial-Up Networking ("Dialing... Verifying user name and password... Connected at
+28,800 bps"), and the WebWalker browser on **Blockopedia**, a Wikipedia-style
+encyclopedia whose pages load at modem speed.
+
+* everyone can read; only **L3g3ndDrag0n2007** can create and edit articles, and the
+  server enforces it
+* Wikipedia-style markup: `'''bold'''`, `[[links]]` (red when the page doesn't exist),
+  `== headings ==`, bullets, plus search, an A-Z page list and a preview when editing
+* articles are saved in a DataStore and run through Roblox's text filter
+
+**Install:** in Roblox Studio, paste the three scripts from
+[`roblox-dialup-pc/src/`](roblox-dialup-pc/src/) into ReplicatedStorage (ModuleScript
+`RetroPCShared`), ServerScriptService (Script) and StarterPlayerScripts (LocalScript),
+then press Play. Rojo users can `rojo serve` in the folder instead.
+
+Everything is in [`roblox-dialup-pc/`](roblox-dialup-pc/), with a guide to how it works
+and things to try changing. It has not been tested in Studio yet, so check the Output
+window on the first run.
+
+
 
 
 
