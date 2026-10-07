@@ -237,17 +237,24 @@ DataStores have a per-minute request budget for each server, shared by every rea
 and save. For readers, the server only reads an article from the DataStore if its
 title is in the index. Without that, anyone could ask for thousands of made-up titles,
 use up the budget and make the editor's saves fail. Editors skip that check, so they
-can always open their own pages.
+can open a page even when it's missing from the index (they still get "busy" while
+the server can't read the DataStore).
 
 A save writes the article first and the index second. If the index write fails, the
-server tries again in the background a few times. Until it works, readers can't find
-the page, but the editor can still open it, and saving it again lists it.
+editor gets a warning box, and the server tries again in the background after 5, 15,
+30 and 50 seconds, then once more when the server shuts down (`game:BindToClose`,
+which Roblox waits up to 30 seconds for). Until it works, readers on every server
+can't find the page, but the editor can still open it, and saving it again lists it.
 
-On a live server the DataStore is always used. If a request fails (because Roblox's
-servers are busy, say), the browser shows a "Server error" page saying "The server is
-busy. Try again in a moment." and **Reload** tries again. A failed read of the page list is retried after 5 seconds;
-until a server has read the list once, it answers "busy" rather than showing an empty
-wiki. Memory-only mode is only for Studio without API access.
+On a live server the DataStore is always used. If reading a page fails (because
+Roblox's servers are busy, say), the browser shows a "Server error" page saying "The
+server is busy. Try again in a moment." and **Reload** tries again. A search shows the
+same message under "Search results". A failed read of the page list is retried after
+5 seconds; until a server has read the list once, it answers "busy" rather than
+showing an empty wiki. If a save fails, an error box says "The save failed (the server
+may be busy). Try again in a minute." Press **Save page** again; don't press
+**Reload**, which reloads the editor and loses what you typed. Memory-only mode is
+only for Studio without API access.
 
 ### Text filtering (required by Roblox)
 
@@ -320,7 +327,8 @@ as buttons under **Links on this page**.
    Light 1 stays on while the PC is in use; 2 and up flicker.
 
 Set `SpawnDemoPC = false` to remove the built-in PC. You can have as many PCs as you
-like; they all share one wiki. Copies made with `Clone()` while the game runs work too.
+like; they all share one wiki. Copies made with `Clone()` while the game runs work too,
+and so does a PC you remove (`Parent = nil`) and put back later.
 Tagged models outside Workspace (a template in ServerStorage, say) don't count as a
 place you can save from.
 
@@ -354,11 +362,13 @@ place you can save from.
   requests"** means more than 10 requests in one second.
 * **A page saved on another server is missing.** Each server refreshes its page list
   every 30 seconds (`CacheSeconds`), so wait and press **Reload**.
-* **"[RetroPC] Couldn't update the index" or "Gave up adding ... to the index".**
-  The page was saved but isn't listed yet. The server retries by itself. If it gives
-  up, the editor can type `http://blockopedia.local/wiki/Page_Name` (spaces as `_`)
-  in the Location box to open the page and save it again. Trying to create a page
-  with the same title also lists it again.
+* **"The page was saved, but the list of pages couldn't be updated", or
+  "[RetroPC] Couldn't update the index" / "Gave up adding ... to the index for now"
+  in Output.** The page was saved but isn't listed yet. The server retries by itself,
+  and once more when it shuts down. To list it sooner, the editor can type
+  `http://blockopedia.local/wiki/Page_Name` (spaces as `_`) in the Location box to
+  open the page and save it again. Trying to create a page with the same title also
+  lists it again.
 * **A "Server error" page saying "The server is busy".** A DataStore request failed.
   Press **Reload** after a few seconds.
 
@@ -375,9 +385,11 @@ These are good ways to learn the code. Each one only needs a small change:
    using `math.random`. Where does the window need redrawing?
 4. **Delete button.** Add a `handlers.delete` on the server, copying how `saveEntry`
    checks the editor. Remove the title from the `index` too (with `updateKey`), and
-   update the server's copies the way `addToIndex` does (`entryCache[key]`,
-   `indexCache`, and `indexGeneration += 1`), or this server keeps showing the page
-   for up to 30 seconds.
+   update the server's copies: `entryCache[key] = { at = os.clock() }` (no entry,
+   like `saveEntry` sets it with one), and `indexCache` plus `indexGeneration += 1`
+   (as `addToIndex` does). Otherwise this server keeps showing the page for up to 30
+   seconds. Also clear `pendingIndex[key]`, or a background retry from a recent save
+   could list the deleted page again.
 5. **New markup.** Make `__text__` underline. You only need one more `string.gsub`
    in `inlineMarkup`, and one more line in the tests.
 6. **Visited links.** `COLORS.visited` is already defined. Keep a table of visited
@@ -419,6 +431,9 @@ Analysis** does the same job.
   the live game
 * Roblox Creator Docs, [Data store error codes and limits](https://create.roblox.com/docs/cloud-services/data-stores/error-codes-and-limits):
   50-character key names, 4,194,304 characters per value, per-server request limits
+* Roblox Creator Docs, [DataModel.BindToClose](https://create.roblox.com/docs/reference/engine/classes/DataModel#BindToClose):
+  a server waits 30 seconds for these functions before shutting down, and should
+  use one to save data when it uses DataStores
 * Roblox Creator Docs, [Player.DisplayName](https://create.roblox.com/docs/reference/engine/classes/Player#DisplayName):
   display names aren't unique
 * Roblox Creator Docs, [Instance.WaitForChild](https://create.roblox.com/docs/reference/engine/classes/Instance#WaitForChild):

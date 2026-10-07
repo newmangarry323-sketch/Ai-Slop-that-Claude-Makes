@@ -1816,6 +1816,13 @@ local function renderEditor(token: number, mode: "create" | "edit", title: strin
 			else
 				setStatus(`Page saved: {result.entry.title}`)
 			end
+			if result.listed == false then
+				messageBox(
+					Config.WikiName,
+					"The page was saved, but the list of pages couldn't be updated, so readers can't find it yet. The server keeps trying.",
+					"warning"
+				)
+			end
 		else
 			setStatus("Save failed.")
 			messageBox(Config.WikiName, result.error or "The save failed.", "error")

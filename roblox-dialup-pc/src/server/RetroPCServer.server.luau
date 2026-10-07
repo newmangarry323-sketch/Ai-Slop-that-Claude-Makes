@@ -341,8 +341,9 @@ end
 
 -- Prompts this script has connected. A copy of a PC made with Clone() brings
 -- its prompt along but not the connection, so a prompt not in here is
--- replaced. Entries are removed when their prompt is destroyed. (Not a
--- weak table: Luau can drop an Instance from one while it still exists.)
+-- replaced. Entries are removed when their prompt leaves the game
+-- (destroyed, or its PC removed by setting Parent to nil). Not a weak
+-- table: Luau can drop an Instance from one while it still exists.
 local connectedPrompts: { [Instance]: boolean } = {}
 
 local function setupPC(instance: Instance)
@@ -366,6 +367,12 @@ local function setupPC(instance: Instance)
 	connectedPrompts[prompt] = true
 	prompt.Destroying:Connect(function()
 		connectedPrompts[prompt] = nil
+	end)
+	prompt.AncestryChanged:Connect(function()
+		-- If the PC comes back later, setupPC gives it a fresh prompt.
+		if not prompt:IsDescendantOf(game) then
+			connectedPrompts[prompt] = nil
+		end
 	end)
 	prompt.Name = "RetroPCPrompt"
 	prompt.ActionText = "Use computer"
@@ -445,8 +452,14 @@ local function fail(message: string)
 	return { ok = false, error = message }
 end
 
+-- Pages that were saved but whose index update failed, by key. They are
+-- retried in the background and once more when the server shuts down, so
+-- a page doesn't stay missing from the index for good.
+local pendingIndex: { [string]: IndexItem } = {}
+local retrying: { [string]: boolean } = {}
+
 -- Adds (or updates) one page in the index. Returns false if the DataStore
--- refused; the page is then only in this server's copy for now.
+-- refused; the page then isn't listed on any server yet.
 local function addToIndex(key: string, item: IndexItem): boolean
 	local ok, newIndex = updateKey("index", function(old: any): any
 		local index: Index = if type(old) == "table" then old else {}
@@ -458,20 +471,78 @@ local function addToIndex(key: string, item: IndexItem): boolean
 		index[key] = item
 		return index
 	end)
-	indexGeneration += 1
-	if ok and type(newIndex) == "table" then
+	if not ok then
+		warn("[RetroPC] Couldn't update the index:", newIndex)
+		return false
+	end
+	if type(newIndex) == "table" then
+		indexGeneration += 1
 		indexCache = newIndex
 		indexFetchedAt = os.clock()
 		indexLoaded = true
+	end -- nil means it was already listed with a newer save
+	local pending = pendingIndex[key]
+	if pending and pending.updated <= item.updated then
+		pendingIndex[key] = nil
+	end
+	return true
+end
+
+-- Lists a page. If the DataStore refuses, keeps trying in the background
+-- (after 5, 15, 30 and 50 seconds). Returns true if it's listed now.
+local function listPage(key: string, item: IndexItem): boolean
+	if addToIndex(key, item) then
 		return true
 	end
-	if ok then
-		return true -- already listed with a newer save
+	local pending = pendingIndex[key]
+	if not pending or pending.updated <= item.updated then
+		pendingIndex[key] = item
 	end
-	warn("[RetroPC] Couldn't update the index:", newIndex)
-	indexCache[key] = item
+	if not retrying[key] then
+		retrying[key] = true
+		task.spawn(function()
+			for attempt = 1, 4 do
+				task.wait(5 * attempt)
+				local current = pendingIndex[key] -- the newest save of this page
+				if not current or addToIndex(key, current) then
+					break
+				end
+			end
+			retrying[key] = nil
+			local left = pendingIndex[key]
+			if left then
+				warn(
+					"[RetroPC] Gave up adding",
+					left.title,
+					"to the index for now. It's tried again when the server shuts down; saving the page again also lists it."
+				)
+			end
+		end)
+	end
 	return false
 end
+
+-- Roblox waits for this (up to 30 seconds) before a server shuts down: one
+-- last try at listing the pages whose index update kept failing.
+game:BindToClose(function()
+	if store == nil or next(pendingIndex) == nil then
+		return
+	end
+	local items = table.clone(pendingIndex)
+	local ok, problem = updateKey("index", function(old: any): any
+		local index: Index = if type(old) == "table" then old else {}
+		for key, item in items do
+			local current = index[key]
+			if not (current and current.updated > item.updated) then
+				index[key] = item
+			end
+		end
+		return index
+	end)
+	if not ok then
+		warn("[RetroPC] Couldn't list unsaved index entries at shutdown:", problem)
+	end
+end)
 
 local function saveEntry(player: Player, rawTitle: any, rawBody: any, mode: any)
 	-- 1. Only editors. player.Name and player.UserId come from Roblox, so a
@@ -549,7 +620,7 @@ local function saveEntry(player: Player, rawTitle: any, rawBody: any, mode: any)
 		-- whose index update failed): list it now, so it can be found.
 		local found = existingEntry
 		if found and getIndex()[key] == nil then
-			addToIndex(key, { title = found.title, updated = found.updated, author = found.author })
+			listPage(key, { title = found.title, updated = found.updated, author = found.author })
 		end
 		return fail(refusal)
 	end
@@ -560,22 +631,12 @@ local function saveEntry(player: Player, rawTitle: any, rawBody: any, mode: any)
 	local entry: Entry = saved
 	entryCache[key] = { entry = entry, at = os.clock() }
 
+	-- listed = false tells the editor the page is saved but readers can't
+	-- find it yet (the server keeps trying to list it).
 	local item: IndexItem = { title = entry.title, updated = now, author = player.Name }
-	if not addToIndex(key, item) then
-		-- The page is saved but not listed yet. Keep trying in the
-		-- background, so it doesn't stay missing from the index for good.
-		task.spawn(function()
-			for attempt = 1, 4 do
-				task.wait(5 * attempt)
-				if addToIndex(key, item) then
-					return
-				end
-			end
-			warn("[RetroPC] Gave up adding", entry.title, "to the index. Saving the page again will list it.")
-		end)
-	end
+	local listed = listPage(key, item)
 
-	return { ok = true, entry = entry }
+	return { ok = true, entry = entry, listed = listed }
 end
 
 local handlers: { [string]: (Player, ...any) -> any } = {}
