@@ -52,7 +52,9 @@ local Config = {
 	MaxPageLoadSeconds = 4,
 
 	-- Entry rules.
-	TitleMaxLength = 40, -- the data store key must stay under 50 characters
+	-- The data store key ("e_" + title) can be at most 50 characters, so
+	-- keep this at 48 or less.
+	TitleMaxLength = 40,
 	BodyMaxLength = 6000,
 
 	-- Spawn a ready-made PC on a desk (its position is set at the top of
@@ -120,8 +122,16 @@ end
 ---------------------------------------------------------------------------
 -- Text helpers
 ---------------------------------------------------------------------------
+-- Removes spaces (and tabs, newlines) from both ends. Written with find and
+-- match because the usual gsub("%s+$", "") gets very slow on text with a
+-- long run of spaces in the middle, and the editor runs this on every key.
 function RetroPCShared.trim(s: string): string
-	return (string.gsub(s, "^%s+", ""):gsub("%s+$", ""))
+	local first = string.find(s, "%S")
+	if not first then
+		return ""
+	end
+	-- From the first non-space character, as far as the last one.
+	return string.match(s, "^.*%S", first) :: string
 end
 
 -- Title rules: the letters A-Z (any case, no accents: %w only matches
@@ -151,20 +161,27 @@ function RetroPCShared.titleKey(title: string): string
 	return "e_" .. string.gsub(string.lower(title), " ", "_")
 end
 
--- Tidies an article body: Windows line endings, tabs (4 spaces each) and
--- control characters. The length limit counts characters, not bytes, so
--- "é" or an emoji counts as one.
--- Returns the clean body, or nil and the reason it was refused.
-function RetroPCShared.cleanBody(raw: string): (string?, string?)
-	if utf8.len(raw) == nil then
-		return nil, "The text has invalid characters."
-	end
+-- Tidies an article body without checking it: Windows line endings, tabs
+-- (4 spaces each), control characters, spaces at both ends. The editor's
+-- counter uses this to count exactly what would be saved.
+function RetroPCShared.tidyBody(raw: string): string
 	local body = string.gsub(raw, "\r\n?", "\n")
 	body = string.gsub(body, "\t", "    ")
 	body = string.gsub(body, "[%c]", function(c: string): string
 		return if c == "\n" then c else ""
 	end)
-	body = RetroPCShared.trim(body)
+	return RetroPCShared.trim(body)
+end
+
+-- Tidies an article body and checks it. The length limit counts Unicode
+-- code points, not bytes, so "é" or 😀 counts as one (emoji built from
+-- several parts, like flags, count as two or more).
+-- Returns the clean body, or nil and the reason it was refused.
+function RetroPCShared.cleanBody(raw: string): (string?, string?)
+	if utf8.len(raw) == nil then
+		return nil, "The text has invalid characters."
+	end
+	local body = RetroPCShared.tidyBody(raw)
 	if body == "" then
 		return nil, "The article is empty."
 	end
@@ -174,7 +191,7 @@ function RetroPCShared.cleanBody(raw: string): (string?, string?)
 	return body, nil
 end
 
--- Number of characters (not bytes) in UTF-8 text.
+-- Number of characters (Unicode code points, not bytes) in UTF-8 text.
 function RetroPCShared.length(s: string): number
 	return utf8.len(s) or #s
 end

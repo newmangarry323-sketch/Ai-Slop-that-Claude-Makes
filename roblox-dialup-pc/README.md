@@ -13,7 +13,7 @@ round it.
 
 > **Status: not tested in Roblox Studio yet.** It was written without Studio. All
 > three scripts pass `luau-lsp` type checking against the Roblox API definitions,
-> the shared module's 57 tests pass in the Luau interpreter (see
+> the shared module's 63 tests pass in the Luau interpreter (see
 > [Checking the code](#checking-the-code)), and the code was reviewed against the
 > Roblox Creator Docs. Layout and timing can only be checked in Studio, so open
 > **View → Output** on the first run and look for errors.
@@ -31,10 +31,10 @@ round it.
 |---|---|
 | The PC | Desk, CRT monitor with a glowing screen, tower with floppy and CD drive, keyboard, mouse, external modem whose lights blink while someone is using the PC |
 | Boot | BIOS screen (CPU, memory count to 16384K, drives, modem), then a splash screen. Click to skip. The second time you use the PC it skips the BIOS |
-| Desktop | Teal background, icons you double-click, Start menu, taskbar with a button for each window, a clock, and a "connected" icon whose lights flicker while you're online |
+| Desktop | Teal background, icons you double-click, Start menu, taskbar with a button for each open program (Blockopedia, Dial-Up Networking, Read Me), a clock, and a "connected" icon whose lights flicker while you're online |
 | Windows | Grey 3D bevels, navy title bars, drag them by the title bar, minimise and close buttons, error and warning message boxes |
 | Dial-Up Networking | Connect To dialog (your username, a masked password, the phone number), a dialing sequence with status text, then "Connected at 28,800 bps" with a running duration timer. Optional dial-up sound |
-| WebWalker browser | Back, Forward, Home, Reload, All Pages, Random, Help, Stop and (editor only) New. A Location bar you can type page names or addresses into. Status bar ("Transferring data from blockopedia.local: 1.2 KB of 3.4 KB") |
+| WebWalker browser | Back, Forward, Home, Reload, All Pages, Random, Help, Stop and (editor only) New. A Location bar you can type page names or addresses into. Status bar ("Transferring data from blockopedia.local: 1.2 KB of 3.4 KB (2.9 KB/sec)") |
 | Blockopedia | Main page with recent changes, articles, red links for pages that don't exist yet, "Links on this page", search, an A–Z list of all pages, a help page, "403 Forbidden" for anyone else who tries to edit |
 | Editor (one user only) | Create and edit articles with Wikipedia-style markup, a live character counter and a preview. Saved to a DataStore, so pages survive server restarts |
 | Leaving | Start → Shut Down ("It's now safe to turn off your computer."), or the POWER button on the monitor |
@@ -111,8 +111,10 @@ case count as the same title ("Modem" and "modem" are one page). These names bel
 to the browser and can't be titles: Main Page, All Pages, Search, Random, Help,
 New Article.
 
-**Articles** can be up to 6,000 characters. Accented letters and emoji count as one
-character each, and a tab counts as 4 (it's turned into 4 spaces).
+**Articles** can be up to 6,000 characters. Characters are counted, not bytes: an
+accented letter or a simple emoji like 😀 counts as one (emoji built from several
+parts, like flags, count as two or more), and a tab counts as 4 (it's turned into
+4 spaces). The counter under the editor counts the same way.
 
 ## Changing who can edit
 
@@ -189,8 +191,9 @@ They talk through two remotes the server creates in ReplicatedStorage:
 * **`RetroPCRemote`**, a RemoteFunction for everything else. The client calls
   `remote:InvokeServer("get", "Modem")` and waits. The server's `OnServerInvoke`
   looks up `handlers.get` and returns a table like `{ ok = true, entry = {...} }`.
-  The requests are `hello` (am I an editor? is the DataStore working?), `index`,
-  `get`, `search`, `random`, `save` and `closed`.
+  The requests are `hello` (am I an editor? does this server save to the DataStore,
+  or only keep pages in memory?), `index`, `get`, `search`, `random`, `save` and
+  `closed`.
 
 Roblox's own security guide says to treat everything that arrives from a client as
 possibly faked, so every handler checks the types of its arguments, and the server
@@ -207,10 +210,11 @@ end
 ```
 
 `player` is filled in **by Roblox**, not sent by the client, so nobody can pretend to
-be someone else. The client asks the server once, with the `hello` request
-(`handlers.hello` calls `isEditor` with the real Player), and uses the answer only to
-decide whether to show the **New** and **Edit** buttons. Even with those buttons
-forced back on, the server still refuses. The server also re-checks the title and
+be someone else. The client asks the server each time the PC starts, with the `hello`
+request (`handlers.hello` calls `isEditor` with the real Player), and uses the answer
+only to decide what to show: the **New**, **Edit this page**, **Start this article**
+and **Create the page** buttons, and the editor instead of "403 Forbidden". Even with
+those buttons forced back on, the server still refuses. The server also re-checks the title and
 body rules, because a modified client could skip its own checks.
 
 ### Saving: DataStore and the index
@@ -230,14 +234,20 @@ copy of the index and of articles it has read for 30 seconds (`CacheSeconds`), s
 page views never touch the DataStore.
 
 DataStores have a per-minute request budget for each server, shared by every read
-and save. The server only reads an article from the DataStore if its title is in the
-index. Without that, anyone could ask for thousands of made-up titles, use up the
-budget and make the editor's saves fail.
+and save. For readers, the server only reads an article from the DataStore if its
+title is in the index. Without that, anyone could ask for thousands of made-up titles,
+use up the budget and make the editor's saves fail. Editors skip that check, so they
+can always open their own pages.
+
+A save writes the article first and the index second. If the index write fails, the
+server tries again in the background a few times. Until it works, readers can't find
+the page, but the editor can still open it, and saving it again lists it.
 
 On a live server the DataStore is always used. If a request fails (because Roblox's
-servers are busy, say), the page shows "The server is busy" and **Reload** tries
-again; a failed read of the page list is retried after 5 seconds. Memory-only mode is
-only for Studio without API access.
+servers are busy, say), the browser shows a "Server error" page saying "The server is
+busy. Try again in a moment." and **Reload** tries again. A failed read of the page list is retried after 5 seconds;
+until a server has read the list once, it answers "busy" rather than showing an empty
+wiki. Memory-only mode is only for Studio without API access.
 
 ### Text filtering (required by Roblox)
 
@@ -344,6 +354,13 @@ place you can save from.
   requests"** means more than 10 requests in one second.
 * **A page saved on another server is missing.** Each server refreshes its page list
   every 30 seconds (`CacheSeconds`), so wait and press **Reload**.
+* **"[RetroPC] Couldn't update the index" or "Gave up adding ... to the index".**
+  The page was saved but isn't listed yet. The server retries by itself. If it gives
+  up, the editor can type `http://blockopedia.local/wiki/Page_Name` (spaces as `_`)
+  in the Location box to open the page and save it again. Trying to create a page
+  with the same title also lists it again.
+* **A "Server error" page saying "The server is busy".** A DataStore request failed.
+  Press **Reload** after a few seconds.
 
 ## Things to try changing
 
@@ -358,8 +375,9 @@ These are good ways to learn the code. Each one only needs a small change:
    using `math.random`. Where does the window need redrawing?
 4. **Delete button.** Add a `handlers.delete` on the server, copying how `saveEntry`
    checks the editor. Remove the title from the `index` too (with `updateKey`), and
-   clear the server's copies (`entryCache[key]`, `indexCache`), or this server keeps
-   showing the page for up to 30 seconds.
+   update the server's copies the way `addToIndex` does (`entryCache[key]`,
+   `indexCache`, and `indexGeneration += 1`), or this server keeps showing the page
+   for up to 30 seconds.
 5. **New markup.** Make `__text__` underline. You only need one more `string.gsub`
    in `inlineMarkup`, and one more line in the tests.
 6. **Visited links.** `COLORS.visited` is already defined. Keep a table of visited

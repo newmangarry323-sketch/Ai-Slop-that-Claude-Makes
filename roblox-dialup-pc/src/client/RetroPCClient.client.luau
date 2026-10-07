@@ -1155,13 +1155,14 @@ local function setProgress(fraction: number)
 	end
 end
 
-local function refreshIndex(force: boolean): boolean
+-- Returns false and the server's message if the list couldn't be fetched.
+local function refreshIndex(force: boolean): (boolean, string?)
 	if not force and os.clock() - indexAt < 10 then
-		return true
+		return true, nil
 	end
 	local result = request("index")
 	if not result.ok then
-		return false
+		return false, result.error
 	end
 	indexTitles = result.titles or {}
 	indexRecent = result.recent or {}
@@ -1170,7 +1171,7 @@ local function refreshIndex(force: boolean): boolean
 		titleSet[string.lower(title)] = title
 	end
 	indexAt = os.clock()
-	return true
+	return true, nil
 end
 
 local function exists(title: string): boolean
@@ -1730,8 +1731,7 @@ local function renderEditor(token: number, mode: "create" | "edit", title: strin
 	local function updateCounter()
 		-- Count what would be saved (tabs become 4 spaces), in characters,
 		-- the same way the server checks the limit.
-		local cleaned = Shared.cleanBody(bodyBox.Text)
-		local length = Shared.length(cleaned or bodyBox.Text)
+		local length = Shared.length(Shared.tidyBody(bodyBox.Text))
 		counter.Text = `{length} / {Config.BodyMaxLength} characters`
 		counter.TextColor3 = if length > Config.BodyMaxLength then Color3.fromRGB(204, 0, 0) else COLORS.shadow
 	end
@@ -1901,13 +1901,24 @@ local function loadPage(page: Page, token: number)
 		return
 	end
 	setStatus("Contacting host: " .. HOST .. "...")
+	local listOk, listError = true, nil
 	if page.kind ~= "article" then
-		refreshIndex(page.kind == "main" or page.kind == "all")
+		listOk, listError = refreshIndex(page.kind == "main" or page.kind == "all")
 	end
 	if token ~= navToken then
 		return
 	end
 	setStatus("Host contacted. Waiting for reply...")
+
+	-- The main page and All pages are built from the list, so without it
+	-- they'd wrongly say there are no articles.
+	if not listOk and (page.kind == "main" or page.kind == "all") then
+		siteHeader()
+		errorPage("Server error", Shared.escapeRichText(listError or "Couldn't get the list of pages."))
+		add(mkText("Press <b>Reload</b> to try again.", 18), 30)
+		reveal(token)
+		return
+	end
 
 	if page.kind == "article" then
 		renderArticle(token, page.arg or "")

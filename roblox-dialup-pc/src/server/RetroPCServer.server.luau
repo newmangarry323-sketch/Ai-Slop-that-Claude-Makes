@@ -341,8 +341,9 @@ end
 
 -- Prompts this script has connected. A copy of a PC made with Clone() brings
 -- its prompt along but not the connection, so a prompt not in here is
--- replaced. Weak keys: destroyed prompts drop out by themselves.
-local connectedPrompts: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+-- replaced. Entries are removed when their prompt is destroyed. (Not a
+-- weak table: Luau can drop an Instance from one while it still exists.)
+local connectedPrompts: { [Instance]: boolean } = {}
 
 local function setupPC(instance: Instance)
 	if not instance:IsA("Model") then
@@ -363,6 +364,9 @@ local function setupPC(instance: Instance)
 	end
 	local prompt = Instance.new("ProximityPrompt")
 	connectedPrompts[prompt] = true
+	prompt.Destroying:Connect(function()
+		connectedPrompts[prompt] = nil
+	end)
 	prompt.Name = "RetroPCPrompt"
 	prompt.ActionText = "Use computer"
 	prompt.ObjectText = Config.OSName
@@ -441,6 +445,34 @@ local function fail(message: string)
 	return { ok = false, error = message }
 end
 
+-- Adds (or updates) one page in the index. Returns false if the DataStore
+-- refused; the page is then only in this server's copy for now.
+local function addToIndex(key: string, item: IndexItem): boolean
+	local ok, newIndex = updateKey("index", function(old: any): any
+		local index: Index = if type(old) == "table" then old else {}
+		local current = index[key]
+		-- A retry mustn't replace a newer save of the same page.
+		if current and current.updated > item.updated then
+			return nil
+		end
+		index[key] = item
+		return index
+	end)
+	indexGeneration += 1
+	if ok and type(newIndex) == "table" then
+		indexCache = newIndex
+		indexFetchedAt = os.clock()
+		indexLoaded = true
+		return true
+	end
+	if ok then
+		return true -- already listed with a newer save
+	end
+	warn("[RetroPC] Couldn't update the index:", newIndex)
+	indexCache[key] = item
+	return false
+end
+
 local function saveEntry(player: Player, rawTitle: any, rawBody: any, mode: any)
 	-- 1. Only editors. player.Name and player.UserId come from Roblox, so a
 	--    modified client can't fake them.
@@ -486,8 +518,12 @@ local function saveEntry(player: Player, rawTitle: any, rawBody: any, mode: any)
 	local key = Shared.titleKey(title)
 	local now = os.time()
 	local refusal: string? = nil
+	local existingEntry: Entry? = nil
 	local ok, saved = updateKey(key, function(old: any): any
 		local existing: Entry? = if type(old) == "table" then old else nil
+		-- UpdateAsync can call this more than once; only the last call counts.
+		refusal = nil
+		existingEntry = existing
 		if mode == "create" and existing then
 			refusal = `"{existing.title}" already exists. Open it and choose Edit instead.`
 			return nil
@@ -509,6 +545,12 @@ local function saveEntry(player: Player, rawTitle: any, rawBody: any, mode: any)
 		return entry
 	end)
 	if refusal then
+		-- "Already exists" for a page missing from the index (an earlier save
+		-- whose index update failed): list it now, so it can be found.
+		local found = existingEntry
+		if found and getIndex()[key] == nil then
+			addToIndex(key, { title = found.title, updated = found.updated, author = found.author })
+		end
 		return fail(refusal)
 	end
 	if not ok or type(saved) ~= "table" then
@@ -519,20 +561,18 @@ local function saveEntry(player: Player, rawTitle: any, rawBody: any, mode: any)
 	entryCache[key] = { entry = entry, at = os.clock() }
 
 	local item: IndexItem = { title = entry.title, updated = now, author = player.Name }
-	local indexOk, newIndex = updateKey("index", function(old: any): any
-		local index: Index = if type(old) == "table" then old else {}
-		index[key] = item
-		return index
-	end)
-	indexGeneration += 1
-	if indexOk and type(newIndex) == "table" then
-		indexCache = newIndex
-		indexFetchedAt = os.clock()
-		indexLoaded = true
-	else
-		-- The page is saved; it just won't be listed until a later save.
-		warn("[RetroPC] Couldn't update the index:", newIndex)
-		indexCache[key] = item
+	if not addToIndex(key, item) then
+		-- The page is saved but not listed yet. Keep trying in the
+		-- background, so it doesn't stay missing from the index for good.
+		task.spawn(function()
+			for attempt = 1, 4 do
+				task.wait(5 * attempt)
+				if addToIndex(key, item) then
+					return
+				end
+			end
+			warn("[RetroPC] Gave up adding", entry.title, "to the index. Saving the page again will list it.")
+		end)
 	end
 
 	return { ok = true, entry = entry }
@@ -548,11 +588,19 @@ handlers.hello = function(player: Player)
 	}
 end
 
+-- Until a server has read the index once, it can't tell "no pages" from
+-- "couldn't read the list", so list requests answer "busy" instead.
+local BUSY = "The server is busy. Try again in a moment."
+
 handlers.index = function(_player: Player)
+	getIndex()
+	if not indexLoaded then
+		return fail(BUSY)
+	end
 	return { ok = true, titles = allTitles(), recent = recentChanges(8) }
 end
 
-handlers.get = function(_player: Player, rawTitle: any)
+handlers.get = function(player: Player, rawTitle: any)
 	if type(rawTitle) ~= "string" then
 		return fail("Bad request.")
 	end
@@ -563,12 +611,13 @@ handlers.get = function(_player: Player, rawTitle: any)
 	local key = Shared.titleKey(title)
 	-- Only pages in the index are read from the DataStore. Otherwise anyone
 	-- could ask for thousands of made-up titles, use up the server's
-	-- DataStore budget and make the editor's saves fail.
+	-- DataStore budget and make the editor's saves fail. Editors skip this,
+	-- so they can still open (and re-save) a page whose index update failed.
 	local index = getIndex()
 	if not indexLoaded then
-		return fail("The server is busy. Try again in a moment.")
+		return fail(BUSY)
 	end
-	if index[key] == nil then
+	if index[key] == nil and not Shared.isEditor(player.Name, player.UserId) then
 		return { ok = true, entry = nil }
 	end
 	local entry, err = getEntry(key)
@@ -582,10 +631,18 @@ handlers.search = function(_player: Player, query: any)
 	if type(query) ~= "string" or #query > 100 then
 		return fail("Bad request.")
 	end
+	getIndex()
+	if not indexLoaded then
+		return fail(BUSY)
+	end
 	return { ok = true, results = Shared.searchTitles(allTitles(), query, 50) }
 end
 
 handlers.random = function(_player: Player)
+	getIndex()
+	if not indexLoaded then
+		return fail(BUSY)
+	end
 	local titles = allTitles()
 	return { ok = true, title = if #titles > 0 then titles[math.random(#titles)] else nil }
 end

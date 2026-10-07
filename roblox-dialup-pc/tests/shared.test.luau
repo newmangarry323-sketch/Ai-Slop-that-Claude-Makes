@@ -55,6 +55,17 @@ check("body accented 6000 ok", Shared.cleanBody(string.rep("é", 6000)) ~= nil, 
 check("body accented 6001 too long", (Shared.cleanBody(string.rep("é", 6001))), nil)
 check("length counts characters", Shared.length("héllo"), 5)
 check("tab becomes 4 spaces", (Shared.cleanBody("a\tb")), "a    b")
+-- The counter counts tidied text even when it's too long to save.
+local tabby = string.rep("x", 5000) .. string.rep("\ty", 300) -- 5,600 typed, 6,500 tidied
+check("tidy length counts tabs as 4", Shared.length(Shared.tidyBody(tabby)), 6500)
+check("tabby body too long", (Shared.cleanBody(tabby)), nil)
+check("trim", Shared.trim("  \n a b \t "), "a b")
+check("trim all spaces", Shared.trim("   "), "")
+check("trim nothing to do", Shared.trim("ab"), "ab")
+-- A long run of spaces in the middle must stay fast (the editor tidies on every key).
+local started = os.clock()
+Shared.tidyBody("x" .. string.rep(" ", 20000) .. "x")
+check("trim is fast on long space runs", os.clock() - started < 0.05, true)
 check("title message", select(2, Shared.normalizeTitle("Café")), "Titles must start with a letter or digit and can only use A-Z, 0-9, spaces and - ( ) . , ' !")
 
 -- escape / format ------------------------------------------------------
