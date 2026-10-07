@@ -69,18 +69,34 @@ local store: DataStore? = nil
 local memory: { [string]: any } = {} -- used when the DataStore isn't available
 
 do
+	local ds: DataStore? = nil
+	local problem: any = nil
 	local ok, result = pcall(function()
-		local ds = DataStoreService:GetDataStore(Config.DataStoreName)
-		ds:GetAsync("index") -- fails in Studio without API access
-		return ds
+		return DataStoreService:GetDataStore(Config.DataStoreName)
 	end)
 	if ok then
-		store = result
+		ds = result
 	else
+		problem = result
+	end
+	-- In Studio, try one read: it fails when the place isn't published or
+	-- Studio has no API access. Live servers skip this test, so a short
+	-- DataStore outage only fails the requests made during it ("The server
+	-- is busy") instead of keeping the server in memory mode for good.
+	if ds and RunService:IsStudio() then
+		local probeOk, probeError = pcall(function()
+			(ds :: DataStore):GetAsync("index")
+		end)
+		if not probeOk then
+			ds, problem = nil, probeError
+		end
+	end
+	store = ds
+	if not ds then
 		warn(
 			"[RetroPC] DataStore unavailable, so entries are kept in memory and lost when the server stops. "
-				.. "In Studio: File > Game Settings > Security > Enable Studio Access to API Services. ("
-				.. tostring(result)
+				.. "In Studio: File > Experience Settings > Security > Enable Studio Access to API Services. ("
+				.. tostring(problem)
 				.. ")"
 		)
 	end
@@ -117,16 +133,26 @@ end
 -- Config.CacheSeconds.
 local indexCache: Index = {}
 local indexFetchedAt = -math.huge
+-- Goes up whenever a save changes indexCache, so a read of the index that
+-- started before the save can't overwrite the newer copy when it returns.
+local indexGeneration = 0
+-- False until the index has been read (or written) once. Until then an
+-- empty indexCache means "don't know yet", not "no pages".
+local indexLoaded = false
 local entryCache: { [string]: { entry: Entry?, at: number } } = {}
 
 local function getIndex(): Index
 	if os.clock() - indexFetchedAt > Config.CacheSeconds then
+		local generation = indexGeneration
 		local ok, value = readKey("index")
-		if ok then
+		if not ok then
+			warn("[RetroPC] Couldn't read the index:", value)
+			-- Try again in 5 seconds rather than on every request.
+			indexFetchedAt = os.clock() - Config.CacheSeconds + 5
+		elseif generation == indexGeneration then
 			indexCache = if type(value) == "table" then value else {}
 			indexFetchedAt = os.clock()
-		else
-			warn("[RetroPC] Couldn't read the index:", value)
+			indexLoaded = true
 		end
 	end
 	return indexCache
@@ -185,8 +211,10 @@ local function filterForEveryone(text: string, fromUserId: number): string?
 	if ok then
 		return result
 	end
-	if RunService:IsStudio() and Config.AllowUnfilteredInStudio then
-		warn("[RetroPC] Text filter failed in Studio, saving unfiltered (never happens on live servers):", result)
+	-- Only when nothing is saved for real: with DataStore access, Studio
+	-- writes to the same DataStore your live servers read from.
+	if RunService:IsStudio() and Config.AllowUnfilteredInStudio and store == nil then
+		warn("[RetroPC] Text filter failed in Studio; saving unfiltered to memory only:", result)
 		return text
 	end
 	warn("[RetroPC] Text filter failed:", result)
@@ -265,7 +293,7 @@ local function buildPC(origin: CFrame): Model
 	part(model, "CDDrive", Vector3.new(0.8, 0.22, 0.05), towerCF * CFrame.new(0, 0.85, -1.1), BEIGE_DARK)
 	part(model, "TowerLight", Vector3.new(0.06, 0.06, 0.05), towerCF * CFrame.new(0.3, -0.8, -1.1), Color3.fromRGB(60, 255, 90), Enum.Material.Neon)
 
-	-- External modem with lights that blink while someone is online.
+	-- External modem with lights that blink while someone is using the PC.
 	local modemCF = origin * CFrame.new(2.3, top + 0.12, -1.25)
 	part(model, "Modem", Vector3.new(1.1, 0.22, 0.6), modemCF, Color3.fromRGB(60, 60, 64))
 	for i = 1, 4 do
@@ -311,6 +339,11 @@ local function promptPart(model: Model): BasePart?
 	return model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart", true)
 end
 
+-- Prompts this script has connected. A copy of a PC made with Clone() brings
+-- its prompt along but not the connection, so a prompt not in here is
+-- replaced. Weak keys: destroyed prompts drop out by themselves.
+local connectedPrompts: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+
 local function setupPC(instance: Instance)
 	if not instance:IsA("Model") then
 		warn("[RetroPC] Only Models can be tagged", Config.PCTag, "-", instance:GetFullName())
@@ -318,10 +351,18 @@ local function setupPC(instance: Instance)
 	end
 	local model = instance
 	local anchor = promptPart(model)
-	if not anchor or anchor:FindFirstChild("RetroPCPrompt") then
+	if not anchor then
 		return
 	end
+	local existing = anchor:FindFirstChild("RetroPCPrompt")
+	if existing and connectedPrompts[existing] then
+		return
+	end
+	if existing then
+		existing:Destroy()
+	end
 	local prompt = Instance.new("ProximityPrompt")
+	connectedPrompts[prompt] = true
 	prompt.Name = "RetroPCPrompt"
 	prompt.ActionText = "Use computer"
 	prompt.ObjectText = Config.OSName
@@ -356,7 +397,12 @@ local function nearAPC(player: Player): boolean
 		return false
 	end
 	for _, pc in CollectionService:GetTagged(Config.PCTag) do
-		if pc:IsA("Model") and (pc:GetPivot().Position - root.Position).Magnitude <= Config.MaxUseDistance then
+		-- Only PCs in the world count, not templates kept in ServerStorage.
+		if
+			pc:IsA("Model")
+			and pc:IsDescendantOf(workspace)
+			and (pc:GetPivot().Position - root.Position).Magnitude <= Config.MaxUseDistance
+		then
 			return true
 		end
 	end
@@ -478,9 +524,11 @@ local function saveEntry(player: Player, rawTitle: any, rawBody: any, mode: any)
 		index[key] = item
 		return index
 	end)
+	indexGeneration += 1
 	if indexOk and type(newIndex) == "table" then
 		indexCache = newIndex
 		indexFetchedAt = os.clock()
+		indexLoaded = true
 	else
 		-- The page is saved; it just won't be listed until a later save.
 		warn("[RetroPC] Couldn't update the index:", newIndex)
@@ -513,6 +561,16 @@ handlers.get = function(_player: Player, rawTitle: any)
 		return { ok = true, entry = nil }
 	end
 	local key = Shared.titleKey(title)
+	-- Only pages in the index are read from the DataStore. Otherwise anyone
+	-- could ask for thousands of made-up titles, use up the server's
+	-- DataStore budget and make the editor's saves fail.
+	local index = getIndex()
+	if not indexLoaded then
+		return fail("The server is busy. Try again in a moment.")
+	end
+	if index[key] == nil then
+		return { ok = true, entry = nil }
+	end
 	local entry, err = getEntry(key)
 	if err then
 		return fail(err)

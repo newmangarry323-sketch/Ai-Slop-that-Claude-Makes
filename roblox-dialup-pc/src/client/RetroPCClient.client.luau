@@ -276,9 +276,15 @@ local powerButton: TextButton = new("TextButton", {
 	AutoButtonColor = true,
 }, monitor)
 new("UICorner", { CornerRadius = UDim.new(1, 0) }, powerButton)
-new("UIStroke", { Color = Color3.fromRGB(150, 144, 126), Thickness = 2 }, powerButton)
+-- ApplyStrokeMode Border: on a text object a UIStroke outlines the text
+-- unless told otherwise.
+new("UIStroke", {
+	Color = Color3.fromRGB(150, 144, 126),
+	Thickness = 2,
+	ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+}, powerButton)
 local powerLight = new("Frame", {
-	Position = UDim2.fromOffset(SCREEN.X - 4, SCREEN.Y + BEZEL_TOP + 33),
+	Position = UDim2.fromOffset(SCREEN.X + 1, SCREEN.Y + BEZEL_TOP + 33), -- between the label and the button
 	Size = UDim2.fromOffset(6, 6),
 	BackgroundColor3 = Color3.fromRGB(60, 255, 90),
 	BorderSizePixel = 0,
@@ -334,7 +340,14 @@ local bootHint = textLabel(bootLayer, "Click to skip", UDim2.new(0, 16, 1, -28),
 	TextColor3 = COLORS.shadow,
 })
 
-local splash: Frame = new("Frame", { Size = UDim2.fromScale(1, 1), BorderSizePixel = 0, Visible = false }, bootLayer)
+-- White under the gradient: a UIGradient tints the frame's own colour, and
+-- the engine default is grey.
+local splash: Frame = new("Frame", {
+	Size = UDim2.fromScale(1, 1),
+	BackgroundColor3 = COLORS.white,
+	BorderSizePixel = 0,
+	Visible = false,
+}, bootLayer)
 new("UIGradient", {
 	Rotation = 90,
 	Color = ColorSequence.new(Color3.fromRGB(70, 130, 220), Color3.fromRGB(170, 210, 250)),
@@ -737,7 +750,9 @@ local function openWindow(id: string, title: string, size: Vector2, position: Ve
 		end)
 		minimize.Font = BOLD
 		minimize.TextSize = 11
-		local taskButton = button(taskButtons, title, UDim2.fromOffset(150, 22), nil, function()
+		-- Spaces indent the title. (A UIPadding would also move the bevel
+		-- lines, which are children of the button.)
+		local taskButton = button(taskButtons, "  " .. title, UDim2.fromOffset(150, 22), nil, function()
 			if focused == win and frame.Visible then
 				frame.Visible = false
 			else
@@ -746,7 +761,6 @@ local function openWindow(id: string, title: string, size: Vector2, position: Ve
 		end)
 		taskButton.TextTruncate = Enum.TextTruncate.AtEnd
 		taskButton.TextXAlignment = Enum.TextXAlignment.Left
-		new("UIPadding", { PaddingLeft = UDim.new(0, 6) }, taskButton)
 		taskButton.LayoutOrder = topZ
 		win.taskButton = taskButton
 	end
@@ -808,7 +822,7 @@ local function messageBox(title: string, text: string, icon: "error" | "warning"
 		TextXAlignment = Enum.TextXAlignment.Center,
 	})
 	new("UICorner", { CornerRadius = UDim.new(1, 0) }, badge)
-	new("UIStroke", { Color = COLORS.dark, Thickness = 1 }, badge)
+	new("UIStroke", { Color = COLORS.dark, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, badge)
 	textLabel(win.content, text, UDim2.fromOffset(60, 10), UDim2.new(1, -70, 0, 72), {
 		TextWrapped = true,
 		TextYAlignment = Enum.TextYAlignment.Top,
@@ -875,7 +889,7 @@ local function drawGlobe(frame: Frame)
 		TextXAlignment = Enum.TextXAlignment.Center,
 	})
 	new("UICorner", { CornerRadius = UDim.new(1, 0) }, globe)
-	new("UIStroke", { Color = COLORS.dark, Thickness = 1 }, globe)
+	new("UIStroke", { Color = COLORS.dark, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, globe)
 end
 
 local function drawComputers(frame: Frame)
@@ -941,6 +955,7 @@ end
 local function cancelDial()
 	dialToken += 1
 	connecting = false
+	afterConnect = nil -- or a later, unrelated connection would run it
 	stopDialSound()
 	refreshDialUp()
 end
@@ -1083,6 +1098,12 @@ end
 local function openDialUp()
 	local win, isNew = openWindow("dialup", "Connect To", Vector2.new(330, 240), nil, true)
 	if isNew then
+		-- Closing the window while it's dialing hangs up, like Cancel.
+		win.onClose = function()
+			if connecting then
+				cancelDial()
+			end
+		end
 		refreshDialUp()
 	end
 	focusWindow(win)
@@ -1156,15 +1177,34 @@ local function exists(title: string): boolean
 	return titleSet[string.lower(title)] ~= nil
 end
 
+-- Search text in a URL, the way web forms send it: spaces become "+", and
+-- characters that mean something in a URL become "%" and two hex digits
+-- ("C++" is "C%2B%2B").
+local function encodeQuery(text: string): string
+	local encoded = string.gsub(text, "[^%w %-%.'!%(%),_~]", function(c: string): string
+		return string.format("%%%02X", string.byte(c))
+	end)
+	return (string.gsub(encoded, " ", "+"))
+end
+
+local function decodeQuery(text: string): string
+	local spaced = string.gsub(text, "%+", " ")
+	return (string.gsub(spaced, "%%(%x%x)", function(hex: string): string
+		return string.char(tonumber(hex, 16) :: number)
+	end))
+end
+
+-- Titles only use letters, digits, spaces and - ( ) . , ' ! so spaces
+-- becoming "_" is the only change a page address needs.
 local function urlFor(page: Page): string
 	local arg = page.arg or ""
 	local path = if page.kind == "article"
 		then "/wiki/" .. string.gsub(arg, " ", "_")
-		elseif page.kind == "search" then "/search?q=" .. string.gsub(arg, " ", "+")
+		elseif page.kind == "search" then "/search?q=" .. encodeQuery(arg)
 		elseif page.kind == "all" then "/wiki/All_Pages"
 		elseif page.kind == "help" then "/wiki/Help"
 		elseif page.kind == "edit" then "/edit/" .. string.gsub(arg, " ", "_")
-		elseif page.kind == "new" then "/edit/new"
+		elseif page.kind == "new" then (if arg ~= "" then "/new?title=" .. string.gsub(arg, " ", "_") else "/new")
 		else "/wiki/Main_Page"
 	return "http://" .. HOST .. path
 end
@@ -1180,12 +1220,15 @@ local function pageFromAddress(text: string): Page
 	local query = string.match(s, "^/search%?q=(.*)$")
 	local edit = string.match(s, "^/edit/(.*)$")
 	if query then
-		return { kind = "search", arg = (string.gsub(query, "%+", " ")) }
+		return { kind = "search", arg = decodeQuery(query) }
 	elseif edit then
-		if edit == "new" then
-			return { kind = "new" }
-		end
 		return { kind = "edit", arg = (string.gsub(edit, "_", " ")) }
+	elseif s == "/new" then
+		return { kind = "new" }
+	end
+	local newTitle = string.match(s, "^/new%?title=(.*)$")
+	if newTitle then
+		return { kind = "new", arg = (string.gsub(newTitle, "_", " ")) }
 	end
 	local name = string.lower(Shared.trim((string.gsub(wiki or s, "[_/]", " "))))
 	if name == "" or name == "main page" then
@@ -1601,6 +1644,7 @@ local function renderHelp()
 	local rows = {
 		{ "'''bold'''", "<b>bold</b>" },
 		{ "''italic''", "<i>italic</i>" },
+		{ "'''''both'''''", "<b><i>both</i></b>" },
 		{ "[[Other page]]", `<font color="#0000EE"><u>Other page</u></font>` },
 		{ "[[Other page|click me]]", `<font color="#0000EE"><u>click me</u></font>` },
 		{ "== Heading ==", "a section heading" },
@@ -1618,7 +1662,7 @@ local function renderHelp()
 	add(mkText(" ", 8), 0)
 	add(
 		mkText(
-			`Links to pages that don't exist yet are <font color="#CC0000">red</font>. Titles can use letters, digits, spaces and - ( ) . , ' ! and up to {Config.TitleMaxLength} characters.`,
+			`Links to pages that don't exist yet are <font color="#CC0000">red</font>. Links in the article text can't be clicked; use the list under <b>Links on this page</b>. Titles start with a letter or digit, use A-Z, 0-9, spaces and - ( ) . , ' ! and have up to {Config.TitleMaxLength} characters.`,
 			18
 		),
 		100
@@ -1684,19 +1728,30 @@ local function renderEditor(token: number, mode: "create" | "edit", title: strin
 	local counter = mkText("", 13, FONT, COLORS.shadow)
 	add(counter, 10)
 	local function updateCounter()
-		counter.Text = `{#bodyBox.Text} / {Config.BodyMaxLength} characters`
-		counter.TextColor3 = if #bodyBox.Text > Config.BodyMaxLength then Color3.fromRGB(204, 0, 0) else COLORS.shadow
+		-- Count what would be saved (tabs become 4 spaces), in characters,
+		-- the same way the server checks the limit.
+		local cleaned = Shared.cleanBody(bodyBox.Text)
+		local length = Shared.length(cleaned or bodyBox.Text)
+		counter.Text = `{length} / {Config.BodyMaxLength} characters`
+		counter.TextColor3 = if length > Config.BodyMaxLength then Color3.fromRGB(204, 0, 0) else COLORS.shadow
 	end
 	bodyBox:GetPropertyChangedSignal("Text"):Connect(updateCounter)
 	updateCounter()
 
+	-- The preview sits in a see-through holder: the page loader shows every
+	-- piece it adds, and the preview must stay hidden until asked for.
+	local previewHolder: Frame = new("Frame", {
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+	})
 	local preview: Frame = new("Frame", {
 		BackgroundColor3 = Color3.fromRGB(255, 255, 225),
 		BorderSizePixel = 0,
 		Size = UDim2.fromScale(1, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		Visible = false,
-	})
+	}, previewHolder)
 	new("UIStroke", { Color = COLORS.shadow, Thickness = 1 }, preview)
 	new("UIPadding", {
 		PaddingLeft = UDim.new(0, 8),
@@ -1745,6 +1800,9 @@ local function renderEditor(token: number, mode: "create" | "edit", title: strin
 		saving = true
 		setEnabled(saveButton, false)
 		setStatus("Sending data to " .. HOST .. "...")
+		-- If the player goes to another page while this is saving, the
+		-- reply must not drag them back to the article.
+		local saveToken = navToken
 		local result = request("save", cleanTitle, cleanBody, mode)
 		saving = false
 		if not isOpen then
@@ -1753,8 +1811,11 @@ local function renderEditor(token: number, mode: "create" | "edit", title: strin
 		setEnabled(saveButton, true)
 		if result.ok and type(result.entry) == "table" then
 			indexAt = -math.huge
-			setStatus("Page saved.")
-			navigate({ kind = "article", arg = result.entry.title }, "replace")
+			if saveToken == navToken then
+				navigate({ kind = "article", arg = result.entry.title }, "replace")
+			else
+				setStatus(`Page saved: {result.entry.title}`)
+			end
 		else
 			setStatus("Save failed.")
 			messageBox(Config.WikiName, result.error or "The save failed.", "error")
@@ -1771,11 +1832,11 @@ local function renderEditor(token: number, mode: "create" | "edit", title: strin
 		end
 	end)
 	add(mkRow({ saveButton, previewButton, cancelButton }), 30)
-	add(preview, 10)
+	add(previewHolder, 10)
 	if not savedToDataStore then
 		add(
 			mkText(
-				"<i>Note: the DataStore isn't available, so saved pages only last until this server shuts down. In Studio, turn on Game Settings > Security > Enable Studio Access to API Services.</i>",
+				"<i>Note: the DataStore isn't available, so saved pages only last until this server shuts down. In Studio, turn on File > Experience Settings > Security > Enable Studio Access to API Services.</i>",
 				14,
 				FONT,
 				Color3.fromRGB(204, 0, 0)
@@ -1813,8 +1874,17 @@ local function loadPage(page: Page, token: number)
 		)
 		add(
 			mkButton("Dial up now", function()
-				afterConnect = function()
+				if connected then -- connected some other way meanwhile
 					navigate(page, "back")
+					return
+				end
+				-- Load this page once connected, unless the player has gone
+				-- somewhere else by then.
+				local clickToken = navToken
+				afterConnect = function()
+					if clickToken == navToken and browser then
+						navigate(page, "back")
+					end
 				end
 				openDialUp()
 				task.spawn(dial)
@@ -1868,9 +1938,16 @@ navigate = function(page: Page, how: string?)
 		return
 	end
 	if page.kind == "random" then
-		-- Ask the server for a title, then go there instead.
+		-- Ask the server for a title, then go there instead. Counts as a
+		-- navigation, so Stop or another click while waiting cancels it.
+		navToken += 1
+		local token = navToken
+		setStatus("Looking up a random page...")
 		task.spawn(function()
 			local result = request("random")
+			if token ~= navToken or browser == nil then
+				return
+			end
 			if result.ok and type(result.title) == "string" then
 				navigate({ kind = "article", arg = result.title }, how)
 			else
@@ -2215,7 +2292,7 @@ local function openPC(model: Model)
 		if isEditor and not savedToDataStore then
 			messageBox(
 				Config.OSName,
-				"The DataStore isn't available, so new pages only last until the server stops. In Studio: Game Settings > Security > Enable Studio Access to API Services.",
+				"The DataStore isn't available, so new pages only last until the server stops. In Studio: File > Experience Settings > Security > Enable Studio Access to API Services.",
 				"warning"
 			)
 		end

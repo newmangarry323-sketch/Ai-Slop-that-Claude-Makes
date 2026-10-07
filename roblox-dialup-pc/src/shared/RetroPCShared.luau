@@ -20,8 +20,8 @@ local RetroPCShared = {}
 ---------------------------------------------------------------------------
 local Config = {
 	-- Only these players can create or edit entries. Everyone else can read.
-	-- Names are compared without caring about upper/lower case, the same way
-	-- Roblox treats usernames.
+	-- Use the username (the @name), not the display name. Upper/lower case
+	-- doesn't matter.
 	EditorUsernames = { "L3g3ndDrag0n2007" },
 	-- Optional: user IDs that are also editors. A user ID never changes, a
 	-- username can, so adding your ID here keeps you as editor after a rename.
@@ -36,7 +36,7 @@ local Config = {
 	SiteHost = "blockopedia.local",
 
 	-- Dial-up. 28,800 bit/s is the top speed of the V.34 modem standard
-	-- (1994). Try 14400 for an older modem or 56000 for a late-90s one.
+	-- (1994). Shown in the BIOS and the "Connected at" message.
 	ModemBitsPerSecond = 28800,
 	-- 555-0100 to 555-0199 are set aside for fiction in North America.
 	PhoneNumber = "555-0142",
@@ -62,15 +62,20 @@ local Config = {
 
 	-- How close you must be to use a PC (studs).
 	PromptDistance = 8,
-	MaxUseDistance = 16, -- the server checks this before saving
+	-- Measured from the PC model's pivot. Further than this and the server
+	-- refuses to save, and the screen switches off.
+	MaxUseDistance = 16,
 
 	-- Saving.
 	DataStoreName = "RetroPCWiki_v1",
 	SaveCooldown = 3, -- seconds between saves per player
-	MaxRequestsPerSecond = 10, -- per player, for everything else
+	MaxRequestsPerSecond = 10, -- per player, all requests (saves included)
 	CacheSeconds = 30, -- how long the server trusts its copy of the index
-	-- Roblox's text filter often doesn't run in Studio. When this is true,
-	-- Studio saves unfiltered text if the filter fails. Live servers never do.
+	-- Roblox's text filter often doesn't run in Studio. When this is true and
+	-- Studio has no DataStore access (pages only kept in memory), a Studio
+	-- test saves unfiltered text if the filter fails. With DataStore access
+	-- the save is refused instead, because Studio shares the DataStore with
+	-- your live servers. Live servers never save unfiltered text.
 	AllowUnfilteredInStudio = true,
 
 	-- Names of the instances the scripts create.
@@ -94,8 +99,9 @@ local RESERVED = {
 -- Who can edit
 ---------------------------------------------------------------------------
 -- Always call this on the server with the real Player's Name and UserId.
--- The client also calls it, but only to decide which buttons to show:
--- hiding a button doesn't stop anyone, the server check does.
+-- The server also uses it to answer the client's "hello" request, which
+-- only decides which buttons to show: hiding a button doesn't stop anyone,
+-- the check before saving does.
 function RetroPCShared.isEditor(name: string, userId: number): boolean
 	for _, id in Config.EditorUserIds do
 		if id == userId then
@@ -118,7 +124,8 @@ function RetroPCShared.trim(s: string): string
 	return (string.gsub(s, "^%s+", ""):gsub("%s+$", ""))
 end
 
--- Title rules: letters, digits, spaces and - ( ) . , ' !
+-- Title rules: the letters A-Z (any case, no accents: %w only matches
+-- those), digits, spaces and - ( ) . , ' !
 -- It must start with a letter or digit. Spaces are tidied up.
 -- Returns the clean title, or nil and the reason it was refused.
 function RetroPCShared.normalizeTitle(raw: string): (string?, string?)
@@ -130,7 +137,7 @@ function RetroPCShared.normalizeTitle(raw: string): (string?, string?)
 		return nil, `The title is too long (max {Config.TitleMaxLength} characters).`
 	end
 	if not string.match(title, "^[%w][%w %-%(%)%.,'!]*$") then
-		return nil, "Titles can only use letters, digits, spaces and - ( ) . , ' !"
+		return nil, "Titles must start with a letter or digit and can only use A-Z, 0-9, spaces and - ( ) . , ' !"
 	end
 	if RESERVED[string.lower(title)] then
 		return nil, `"{title}" is a built-in page name.`
@@ -144,7 +151,9 @@ function RetroPCShared.titleKey(title: string): string
 	return "e_" .. string.gsub(string.lower(title), " ", "_")
 end
 
--- Tidies an article body: Windows line endings, tabs and control characters.
+-- Tidies an article body: Windows line endings, tabs (4 spaces each) and
+-- control characters. The length limit counts characters, not bytes, so
+-- "é" or an emoji counts as one.
 -- Returns the clean body, or nil and the reason it was refused.
 function RetroPCShared.cleanBody(raw: string): (string?, string?)
 	if utf8.len(raw) == nil then
@@ -159,10 +168,15 @@ function RetroPCShared.cleanBody(raw: string): (string?, string?)
 	if body == "" then
 		return nil, "The article is empty."
 	end
-	if #body > Config.BodyMaxLength then
+	if RetroPCShared.length(body) > Config.BodyMaxLength then
 		return nil, `The article is too long (max {Config.BodyMaxLength} characters).`
 	end
 	return body, nil
+end
+
+-- Number of characters (not bytes) in UTF-8 text.
+function RetroPCShared.length(s: string): number
+	return utf8.len(s) or #s
 end
 
 -- Rich text treats < > & as markup, so plain text has to escape them.
@@ -221,7 +235,7 @@ end
 	  == Heading ==          section heading (=== Sub heading === too)
 	  * item                 bullet point
 	  ----                   horizontal line
-	  '''bold'''  ''italic''
+	  '''bold'''  ''italic''  '''''bold italic'''''
 	  [[Other page]]         link to another entry
 	  [[Other page|text]]    link that shows different text
 	  a blank line           starts a new paragraph
@@ -242,6 +256,59 @@ export type ParsedArticle = {
 
 local LINK_COLOR = "#0000EE"
 local MISSING_COLOR = "#CC0000"
+
+-- Rich text tags must close in the reverse order they were opened:
+-- <b><i>x</i></b> works, <b><i>x</b></i> doesn't (the whole label then shows
+-- the raw tags). Markup like '''bold ''both''' italic'' overlaps, so this
+-- walks the tags with a stack. When a tag closes out of order, the tags
+-- opened after it are closed first and opened again afterwards. Only tags
+-- made by inlineMarkup can be here, because the text was escaped first.
+local function balanceTags(text: string): string
+	local out: { string } = {}
+	local open: { { name: string, tag: string } } = {}
+	local pos = 1
+	while true do
+		local first, last, slash, name = string.find(text, "<(/?)(%a+)[^>]*>", pos)
+		if not first or not last then
+			break
+		end
+		table.insert(out, string.sub(text, pos, first - 1))
+		local tag = string.sub(text, first, last)
+		if slash == "" then
+			table.insert(open, { name = name :: string, tag = tag })
+			table.insert(out, tag)
+		else
+			local depth: number? = nil
+			for i = #open, 1, -1 do
+				if open[i].name == name then
+					depth = i
+					break
+				end
+			end
+			if depth then -- a closing tag with nothing to close is dropped
+				local reopen = {}
+				for i = #open, depth + 1, -1 do
+					table.insert(out, "</" .. open[i].name .. ">")
+					table.insert(reopen, 1, open[i])
+					open[i] = nil
+				end
+				table.insert(out, tag)
+				open[depth] = nil
+				for _, t in reopen do
+					table.insert(out, t.tag)
+					table.insert(open, t)
+				end
+			end
+		end
+		pos = last + 1
+	end
+	table.insert(out, string.sub(text, pos))
+	for i = #open, 1, -1 do
+		table.insert(out, "</" .. open[i].name .. ">")
+	end
+	-- Drop empty pairs like <i></i> left over from reopening.
+	return (string.gsub(table.concat(out), "<(%a+)[^>]*></%1>", ""))
+end
 
 local function inlineMarkup(line: string, links: { string }, seen: { [string]: boolean }, exists: (string) -> boolean): string
 	local text = RetroPCShared.escapeRichText(line)
@@ -264,10 +331,11 @@ local function inlineMarkup(line: string, links: { string }, seen: { [string]: b
 		return `<font color="{color}"><u>{label}</u></font>`
 	end)
 
-	-- Bold first, so ''' isn't read as '' followed by '.
+	-- Longest runs first, so ''''' isn't read as ''' followed by ''.
+	text = string.gsub(text, "'''''(.-)'''''", "<b><i>%1</i></b>")
 	text = string.gsub(text, "'''(.-)'''", "<b>%1</b>")
 	text = string.gsub(text, "''(.-)''", "<i>%1</i>")
-	return text
+	return balanceTags(text)
 end
 
 function RetroPCShared.parseArticle(body: string, exists: ((string) -> boolean)?): ParsedArticle

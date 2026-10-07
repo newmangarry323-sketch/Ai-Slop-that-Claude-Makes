@@ -119,11 +119,14 @@ encyclopedia whose pages load at modem speed.
 **Install:** in Roblox Studio, paste the three scripts from
 [`roblox-dialup-pc/src/`](roblox-dialup-pc/src/) into ReplicatedStorage (ModuleScript
 `RetroPCShared`), ServerScriptService (Script) and StarterPlayerScripts (LocalScript),
-then press Play. Rojo users can `rojo serve` in the folder instead.
+then press Play. Rojo users can `rojo serve` in the folder instead. In Studio, pages are
+kept in memory unless you turn on API access (the folder README explains how, and why
+to do it in a test copy of your game). To try the editor in Studio, play as
+L3g3ndDrag0n2007 or add your own username to `EditorUsernames` in `RetroPCShared`.
 
-Everything is in [`roblox-dialup-pc/`](roblox-dialup-pc/), with a guide to how it works
-and things to try changing. It has not been tested in Studio yet, so check the Output
-window on the first run.
+Everything is in [`roblox-dialup-pc/`](roblox-dialup-pc/): a settings table, a guide
+to how it works, troubleshooting and things to try changing. It has not been tested in
+Studio yet, so check the Output window on the first run.
 
 
 

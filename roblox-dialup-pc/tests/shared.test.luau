@@ -50,6 +50,12 @@ check("body control chars removed", (Shared.cleanBody("a\0b\7c")), "abc")
 check("body empty", (Shared.cleanBody("  \n ")), nil)
 check("body too long", (Shared.cleanBody(string.rep("x", 6001))), nil)
 check("body invalid utf8", (Shared.cleanBody("bad \255 byte")), nil)
+-- The limit counts characters: 6000 two-byte letters fit, 6001 don't.
+check("body accented 6000 ok", Shared.cleanBody(string.rep("é", 6000)) ~= nil, true)
+check("body accented 6001 too long", (Shared.cleanBody(string.rep("é", 6001))), nil)
+check("length counts characters", Shared.length("héllo"), 5)
+check("tab becomes 4 spaces", (Shared.cleanBody("a\tb")), "a    b")
+check("title message", select(2, Shared.normalizeTitle("Café")), "Titles must start with a letter or digit and can only use A-Z, 0-9, spaces and - ( ) . , ' !")
 
 -- escape / format ------------------------------------------------------
 check("escape", Shared.escapeRichText("<a & b>"), "&lt;a &amp; b&gt;")
@@ -101,6 +107,20 @@ check("links order", parsed.links[1], "Phone line")
 check("links second", parsed.links[2], "Modem")
 check("subheading", Shared.parseArticle("=== Sub ===").blocks[1].kind, "subheading")
 check("unclosed bold left alone", Shared.parseArticle("'''x").blocks[1].text, "'''x")
+
+-- Rich text tags must close in reverse order, even when the markup overlaps.
+local function rich(markup: string): string
+	return Shared.parseArticle(markup).blocks[1].text
+end
+check("bold italic", rich("'''''both''''' text"), "<b><i>both</i></b> text")
+check("overlap bold then italic", rich("'''bold ''both''' italic''"), "<b>bold <i>both</i></b><i> italic</i>")
+check("overlap italic then bold", rich("''a '''b'' c'''"), "<i>a <b>b</b></i><b> c</b>")
+check("nested is unchanged", rich("'''a ''b'' c'''"), "<b>a <i>b</i> c</b>")
+check(
+	"bold across a link",
+	rich("[[Page|'''Bold]] text'''"),
+	'<font color="#0000EE"><u><b>Bold</b></u></font><b> text</b>'
+)
 
 print(`{count - failures}/{count} checks passed`)
 if failures > 0 then
